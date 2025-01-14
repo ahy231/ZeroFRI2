@@ -248,6 +248,13 @@ where
 
                 // The `merge_into` function merges the two "halves" of f_i_minus_one,
                 // weighting by x_i for the part where x_i=1.
+                // The key step:
+                //   merged = eval_0 + x_i * (eval_1 - eval_0)
+                //
+                // If x_i = 0, merged = eval_0.
+                // If x_i = 1, merged = eval_1.
+                // Otherwise, this is a linear interpolation in the field F.
+                // *t = (*eval_1 - *eval_0) * x_i + *eval_0;
                 merge_into(&mut f_i, f_i_minus_one, x_i, 1, 0);
 
                 // Now we store the new univariate polynomial f_i.
@@ -374,7 +381,7 @@ where
         // - The claimed evaluations
         // - The transcript
         //
-        // `additive::batch_open` presumably handles the actual multi-polynomial batch
+        // `additive::batch_open` handles the actual multi-polynomial batch
         // opening logic under the hood (e.g., folding, generating proofs, etc.).
         additive::batch_open::<_, Self>(pp, num_vars, polys, comms, points, evals, transcript)
     }
@@ -560,5 +567,32 @@ where
         // Delegate to `additive::batch_verify`, presumably an internal helper that checks
         // multiple polynomial evaluations in an additive or multi-polynomial context.
         additive::batch_verify::<_, Self>(vp, num_vars, comms, points, evals, transcript)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        pcs::{
+            multilinear::{
+                gemini::Gemini,
+                test::{run_batch_commit_open_verify, run_commit_open_verify},
+            },
+            univariate::UnivariateKzg,
+        },
+        util::transcript::Keccak256Transcript,
+    };
+    use halo2_curves::bn256::Bn256;
+
+    type Pcs = Gemini<UnivariateKzg<Bn256>>;
+
+    #[test]
+    fn commit_open_verify() {
+        run_commit_open_verify::<_, Pcs, Keccak256Transcript<_>>();
+    }
+
+    #[test]
+    fn batch_commit_open_verify() {
+        run_batch_commit_open_verify::<_, Pcs, Keccak256Transcript<_>>();
     }
 }
