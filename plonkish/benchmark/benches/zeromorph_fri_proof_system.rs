@@ -298,7 +298,7 @@ impl Display for Circuit {
 /// Returns a tuple of (Vec<System>, Circuit, Range<usize>).
 fn parse_args() -> (Vec<System>, Circuit, Range<usize>) {
     let (systems, circuit, k_range) = args().chain(Some("".to_string())).tuple_windows().fold(
-        (Vec::new(), Circuit::VanillaPlonk, 10..19),
+        (Vec::new(), Circuit::VanillaPlonk, 10..24),
         |(mut systems, mut circuit, mut k_range), (key, value)| {
             match key.as_str() {
                 "--system" => match value.as_str() {

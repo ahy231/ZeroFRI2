@@ -28,23 +28,18 @@ timer = ["plonkish_backend/timer", "halo2_proofs/print-trace", "espresso_subrout
 
 
 
-
-
-
-
-
-
-
-[[bench]]
+# [[bench]]
 # name = "brakedown_proof_system"
 # harness = false
-# name = "zeromorph_fri_proof_system"
-# harness = false
-name = "gemini_proof_system"
+[[bench]]
+name = "zeromorph_fri_proof_system"
 harness = false
-
-
-
+# [[bench]]
+# name = "gemini_proof_system"
+# harness = false
+# [[bench]]
+# name = "basefold_proof_system"
+# harness = false
 
 
 [[bin]]
