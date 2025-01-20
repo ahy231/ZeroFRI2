@@ -206,7 +206,7 @@ impl Display for System {
 fn parse_args() -> (Vec<System>, Range<usize>, usize, usize) {
     let (systems, k_range, rounds, repetition) =
         args().chain(Some("".to_string())).tuple_windows().fold(
-            (Vec::new(), 5..10, 1, 1),
+            (Vec::new(), 10..23, 1, 1),
             |(mut systems, mut k_range, mut rounds, mut repetition), (key, value)| {
                 match key.as_str() {
                     "--system" => match value.as_str() {
@@ -331,6 +331,11 @@ fn do_bench_pcs<Val, Challenge, Challenger, P>(
     let sum = commit_times.iter().sum::<Duration>();
     let avg = sum / sample_size as u32;
     writeln!(&mut system.commit_output(), "{k}, {}", avg.as_millis()).unwrap();
+    println!(
+        "Commit time for {:?}, k = {k} is {} ms",
+        system,
+        avg.as_millis()
+    );
 
     // Start timing for commit phase
     let _timer = start_timer(|| format!("commit -{k}"));
