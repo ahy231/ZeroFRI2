@@ -1,3 +1,4 @@
+use p3_bn254_fr::{Bn254Fr, FakeExtension};
 use p3_circle::CirclePcs;
 use rand::rngs::OsRng;
 
@@ -17,7 +18,7 @@ use std::{
 };
 
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_challenger::{CanObserve, DuplexChallenger, FieldChallenger};
+use p3_challenger::{CanObserve, DuplexChallenger, FieldChallenger, SerializingChallenger64};
 use p3_challenger::{HashChallenger, SerializingChallenger32};
 use p3_commit::{ExtensionMmcs, Pcs, PolynomialSpace};
 use p3_dft::Radix2DitParallel;
@@ -28,7 +29,7 @@ use p3_keccak::Keccak256Hash;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_mersenne_31::Mersenne31;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
+use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32, SerializingHasher64};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
@@ -49,6 +50,7 @@ fn main() {
 enum System {
     Fri,
     Circle,
+    BigFieldFri,
 }
 
 impl System {
@@ -190,6 +192,51 @@ impl System {
                     vec![vec![k; repetition]; rounds],
                 );
             }
+            System::BigFieldFri => {
+                type Val = Bn254Fr;
+                type Challenge = FakeExtension;
+
+                type ByteHash = Keccak256Hash;
+                type FieldHash = SerializingHasher64<ByteHash>;
+
+                type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+
+                type ValMmcs = MerkleTreeMmcs<Val, u8, FieldHash, MyCompress, 32>;
+
+                type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
+
+                type Challenger = SerializingChallenger64<Val, HashChallenger<u8, ByteHash, 32>>;
+
+                type Dft = Radix2DitParallel<Val>;
+
+                type MyPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
+
+                let log_blowup = 4;
+
+                let byte_hash = ByteHash {};
+                let field_hash = FieldHash::new(byte_hash);
+                let compress = MyCompress::new(byte_hash);
+
+                let val_mmcs = ValMmcs::new(field_hash, compress);
+                let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
+
+                let fri_config = FriConfig {
+                    log_blowup,
+                    log_final_poly_len: 0,
+                    num_queries: 10,
+                    proof_of_work_bits: 8,
+                    mmcs: challenge_mmcs,
+                };
+
+                let pcs = MyPcs::new(Dft::default(), val_mmcs, fri_config);
+
+                do_bench_pcs(
+                    k,
+                    System::BigFieldFri,
+                    &(pcs, Challenger::from_hasher(vec![], byte_hash)),
+                    vec![vec![k; repetition]; rounds],
+                );
+            }
         }
     }
 }
@@ -199,6 +246,7 @@ impl Display for System {
         match self {
             System::Fri => write!(f, "fri"),
             System::Circle => write!(f, "circle"),
+            System::BigFieldFri => write!(f, "big_field_fri"),
         }
     }
 }
@@ -210,9 +258,10 @@ fn parse_args() -> (Vec<System>, Range<usize>, usize, usize) {
             |(mut systems, mut k_range, mut rounds, mut repetition), (key, value)| {
                 match key.as_str() {
                     "--system" => match value.as_str() {
-                        "all" => systems = vec![System::Fri, System::Circle],
+                        "all" => systems = vec![System::Fri, System::Circle, System::BigFieldFri],
                         "fri" => systems.push(System::Fri),
                         "circle" => systems.push(System::Circle),
+                        "big_field_fri" => systems.push(System::BigFieldFri),
                         _ => panic!("system should be one of {{all,fri}}"),
                     },
                     "--k" => {
