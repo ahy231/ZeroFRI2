@@ -9,8 +9,9 @@ use crate::{
         code::{Brakedown, BrakedownSpec, LinearCodes},
         expression::{Expression, Query, Rotation},
         hash::{Hash, Output},
+        new_fields,
         parallel::{num_threads, parallelize, parallelize_iter},
-        storage::Challenger,
+        storage::{ByteHash, Challenger},
         transcript::{FieldTranscript, TranscriptRead, TranscriptWrite},
         BigUint, Deserialize, DeserializeOwned, Itertools, Serialize,
     },
@@ -23,20 +24,28 @@ use crate::{
     },
     util::storage::get_pcs,
 };
+use bitvec::domain;
 use core::ptr::addr_of;
+use ctr::cipher::KeyInit;
 use ff::BatchInverter;
 use itertools::izip;
 use p3_baby_bear::{BabyBear, BabyBearParameters, Poseidon2BabyBear};
-use p3_challenger::{CanObserve, DuplexChallenger, FieldChallenger};
+use p3_bn254_fr::{Bn254Fr, FFBn254Fr, FakeExtension};
+use p3_challenger::{
+    CanObserve, DuplexChallenger, FieldChallenger, HashChallenger, SerializingChallenger64,
+};
 use p3_commit::{ExtensionMmcs, Pcs, PolynomialSpace, TwoAdicMultiplicativeCoset};
 use p3_dft::Radix2DitParallel;
 use p3_field::extension::BinomialExtensionField;
 use p3_field::ExtensionField;
 use p3_fri::{FriConfig, TwoAdicFriPcs};
-use p3_matrix::dense::RowMajorMatrix;
+use p3_keccak::Keccak256Hash;
+use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_monty_31::MontyField31;
-use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+use p3_symmetric::{
+    CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher64, TruncatedPermutation,
+};
 use p3_util::log2_strict_usize;
 use rand::{
     distributions::{Distribution, Standard},
@@ -58,25 +67,41 @@ use rayon::prelude::{
 use std::{borrow::Cow, marker::PhantomData, mem::size_of, slice};
 
 use crate::util::storage::{
-    ChallengeMmcs, Dft, MyCompress, MyHash, MyPcs, Perm, Val, ValMmcs, STORAGE,
+    ChallengeMmcs, Dft, FieldHash, MyCompress, MyPcs, Val, ValMmcs, STORAGE,
 };
 
-fn do_test_fri_pcs<Challenge, Challenger, P>(
+fn commit_helper<Challenge, Challenger, P, Domain>(
     pcs: P,
     log_degrees_by_round: &[&[usize]],
-    vec_u32: Vec<u32>,
-) -> (Vec<P::Commitment>, Vec<P::ProverData>)
+    vec_uint: Vec<BigUint>,
+) -> (
+    Vec<P::Commitment>,
+    Vec<P::ProverData>,
+    Vec<Vec<(Domain, DenseMatrix<Bn254Fr>)>>,
+)
 where
-    P: Pcs<Challenge, Challenger>,
-    P::Domain: PolynomialSpace<Val = BabyBear>,
-    Standard: Distribution<BabyBear>,
-    Challenge: ExtensionField<BabyBear>,
-    Challenger: Clone + CanObserve<P::Commitment> + FieldChallenger<BabyBear>,
+    P: Pcs<Challenge, Challenger, Domain = Domain>,
+    P::Domain: PolynomialSpace<Val = Bn254Fr>,
+    Standard: Distribution<Bn254Fr>,
+    Challenge: ExtensionField<Bn254Fr>,
+    Challenger: Clone + CanObserve<P::Commitment> + FieldChallenger<Bn254Fr>,
+    Domain: PolynomialSpace<Val = Bn254Fr>,
 {
     let num_rounds = log_degrees_by_round.len();
     let mut rng = rand::thread_rng();
 
-    let coeffs_babybear = vec_u32.into_iter().map(|u| BabyBear::new(u)).collect_vec();
+    let coeffs_bn254: Vec<Bn254Fr> = vec_uint
+        .into_iter()
+        .map(|u| {
+            let mut bytes = [0u8; 32];
+            for (i, c) in u.to_bytes_le().iter().enumerate() {
+                bytes[i] = *c;
+            }
+            Bn254Fr {
+                value: FFBn254Fr::from_bytes(&bytes).unwrap(),
+            }
+        })
+        .collect_vec();
 
     let domains_and_polys_by_round = log_degrees_by_round
         .iter()
@@ -90,7 +115,7 @@ where
                     (
                         pcs.natural_domain_for_degree(d),
                         // RowMajorMatrix::<Val>::rand(&mut rng, d, width),
-                        RowMajorMatrix::<Val>::new_col(coeffs_babybear.clone()),
+                        RowMajorMatrix::<Val>::new_col(coeffs_bn254.clone()),
                     )
                 })
                 .collect_vec()
@@ -102,12 +127,12 @@ where
         .map(|domains_and_polys| pcs.commit(domains_and_polys.clone()))
         .unzip();
 
-    (commits_by_round, data_by_round)
+    (commits_by_round, data_by_round, domains_and_polys_by_round)
 }
 
 type SumCheck<F> = ClassicSumCheck<CoefficientsProver<F>>;
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FriParams<F: PrimeField> {
+pub struct P3FriParams<F: PrimeField> {
     log_rate: usize,
     num_verifier_queries: usize,
     num_vars: usize,
@@ -118,7 +143,7 @@ pub struct FriParams<F: PrimeField> {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FriProverParams<F: PrimeField> {
+pub struct P3FriProverParams<F: PrimeField> {
     pub log_rate: usize,
     table_w_weights: Vec<Vec<(F, F)>>,
     pub table: Vec<Vec<F>>,
@@ -129,7 +154,7 @@ pub struct FriProverParams<F: PrimeField> {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FriVerifierParams<F: PrimeField> {
+pub struct P3FriVerifierParams<F: PrimeField> {
     pub num_vars: usize,
     pub log_rate: usize,
     pub num_verifier_queries: usize,
@@ -140,12 +165,12 @@ pub struct FriVerifierParams<F: PrimeField> {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(bound(serialize = "F: Serialize", deserialize = "F: DeserializeOwned"))]
-pub struct FriCommitment<F: PrimeField, H: Hash> {
+pub struct P3FriCommitment<F: PrimeField, H: Hash> {
     pub codeword: Vec<F>,
     pub codeword_tree: Vec<Vec<Output<H>>>,
 }
 
-impl<F: PrimeField, H: Hash> FriCommitment<F, H> {
+impl<F: PrimeField, H: Hash> P3FriCommitment<F, H> {
     fn from_root(root: Output<H>) -> Self {
         Self {
             codeword: Vec::new(),
@@ -153,29 +178,29 @@ impl<F: PrimeField, H: Hash> FriCommitment<F, H> {
         }
     }
 }
-impl<F: PrimeField, H: Hash> PartialEq for FriCommitment<F, H> {
+impl<F: PrimeField, H: Hash> PartialEq for P3FriCommitment<F, H> {
     fn eq(&self, other: &Self) -> bool {
         self.codeword.eq(&other.codeword) && self.codeword_tree.eq(&other.codeword_tree)
     }
 }
 
-impl<F: PrimeField, H: Hash> Eq for FriCommitment<F, H> {}
+impl<F: PrimeField, H: Hash> Eq for P3FriCommitment<F, H> {}
 #[derive(Debug)]
-pub struct Fri<F: PrimeField, H: Hash>(PhantomData<(F, H)>);
+pub struct P3Fri<F: PrimeField, H: Hash>(PhantomData<(F, H)>);
 
-impl<F: PrimeField, H: Hash> Clone for Fri<F, H> {
+impl<F: PrimeField, H: Hash> Clone for P3Fri<F, H> {
     fn clone(&self) -> Self {
         Self(PhantomData)
     }
 }
 
-impl<F: PrimeField, H: Hash> AsRef<[Output<H>]> for FriCommitment<F, H> {
+impl<F: PrimeField, H: Hash> AsRef<[Output<H>]> for P3FriCommitment<F, H> {
     fn as_ref(&self) -> &[Output<H>] {
         let root = &self.codeword_tree[self.codeword_tree.len() - 1][0];
         slice::from_ref(root)
     }
 }
-impl<F: PrimeField, H: Hash> AdditiveCommitment<F> for FriCommitment<F, H> {
+impl<F: PrimeField, H: Hash> AdditiveCommitment<F> for P3FriCommitment<F, H> {
     fn sum_with_scalar<'a>(
         scalars: impl IntoIterator<Item = &'a F> + 'a,
         bases: impl IntoIterator<Item = &'a Self> + 'a,
@@ -203,28 +228,25 @@ impl<F: PrimeField, H: Hash> AdditiveCommitment<F> for FriCommitment<F, H> {
         }
     }
 }
-impl<F, H> PolynomialCommitmentScheme<F> for Fri<F, H>
+impl<F, H> PolynomialCommitmentScheme<F> for P3Fri<F, H>
 where
     F: PrimeField + Serialize + DeserializeOwned,
     H: Hash,
 {
-    type Param = FriParams<F>;
-    type ProverParam = FriProverParams<F>;
-    type VerifierParam = FriVerifierParams<F>;
+    type Param = P3FriParams<F>;
+    type ProverParam = P3FriProverParams<F>;
+    type VerifierParam = P3FriVerifierParams<F>;
     type Polynomial = UnivariatePolynomial<F, CoefficientBasis>;
-    type Commitment = FriCommitment<F, H>;
+    type Commitment = P3FriCommitment<F, H>;
     type CommitmentChunk = Output<H>;
 
     fn setup(poly_size: usize, _: usize, rng: impl RngCore) -> Result<Self::Param, Error> {
         let rate = 3;
         let lg_n: usize = rate + log2_strict(poly_size);
 
-        let mut rng_copy = rng;
-        let perm = Perm::new_from_rng_128(&mut rng_copy);
-        let pcs = get_pcs(perm.clone(), lg_n);
+        let pcs = get_pcs(lg_n);
         unsafe {
             STORAGE.pcs = Some(pcs);
-            STORAGE.perm = Some(perm);
         }
 
         let mut bases = Vec::with_capacity(lg_n);
@@ -279,7 +301,7 @@ where
             unflattened_table_w_weights[i] = level;
         }
 
-        Ok(FriParams {
+        Ok(P3FriParams {
             log_rate: rate,
             num_verifier_queries: 66,
             num_vars: log2_strict(poly_size),
@@ -300,7 +322,7 @@ where
         }
 
         Ok((
-            FriProverParams {
+            P3FriProverParams {
                 log_rate: param.log_rate,
                 table_w_weights: param.table_w_weights.clone(),
                 table: param.table.clone(),
@@ -309,7 +331,7 @@ where
                 num_rounds: rounds,
                 udr_queries: param.udr_queries,
             },
-            FriVerifierParams {
+            P3FriVerifierParams {
                 num_vars: param.num_vars,
                 log_rate: param.log_rate,
                 num_verifier_queries: param.num_verifier_queries,
@@ -320,18 +342,68 @@ where
         ))
     }
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
-        let pcs = unsafe { STORAGE.pcs.clone().unwrap() };
-        let vec_u32: Vec<u32> = poly
-            .coeffs()
-            .into_iter()
-            .map(|f| u32::from_str_radix(&format!("{f:?}").split_at(2).1, 16).unwrap())
-            .collect_vec();
+        let pcs: TwoAdicFriPcs<
+            Bn254Fr,
+            Radix2DitParallel<Bn254Fr>,
+            MerkleTreeMmcs<
+                Bn254Fr,
+                u8,
+                SerializingHasher64<Keccak256Hash>,
+                CompressionFunctionFromHasher<Keccak256Hash, 2, 32>,
+                32,
+            >,
+            ExtensionMmcs<
+                Bn254Fr,
+                FakeExtension,
+                MerkleTreeMmcs<
+                    Bn254Fr,
+                    u8,
+                    SerializingHasher64<Keccak256Hash>,
+                    CompressionFunctionFromHasher<Keccak256Hash, 2, 32>,
+                    32,
+                >,
+            >,
+        > = unsafe { STORAGE.pcs.clone().unwrap() };
+        let mut challenger = unsafe { STORAGE.challenger.clone().unwrap() };
 
-        let (commits_by_round, data_by_round) = do_test_fri_pcs::<
-            BinomialExtensionField<BabyBear, 4>,
-            DuplexChallenger<BabyBear, Perm, 16, 8>,
-            MyPcs,
-        >(pcs, &[&[pp.num_vars; 1]], vec_u32);
+        let mut vec_uint: Vec<BigUint> = vec![];
+        for f in poly.coeffs() {
+            let mut sum = BigUint::from_bytes_le(&[0]);
+            let f_str = format!("{:?}", f);
+            let mut u256_str = f_str.split_at(2).1;
+            let mut u8_str = "";
+            let mut u8_vec = vec![];
+            for _ in 0..32 {
+                (u8_str, u256_str) = u256_str.split_at(2);
+                u8_vec.push(u8::from_str_radix(u8_str, 16).unwrap());
+            }
+            sum += BigUint::from_bytes_be(&u8_vec);
+            vec_uint.push(sum);
+        }
+
+        let (commits_by_round, data_by_round, domains_and_polys_by_round) =
+            commit_helper::<
+                FakeExtension,
+                SerializingChallenger64<Bn254Fr, HashChallenger<u8, Keccak256Hash, 32>>,
+                TwoAdicFriPcs<
+                    Bn254Fr,
+                    Radix2DitParallel<Bn254Fr>,
+                    MerkleTreeMmcs<Bn254Fr, u8, FieldHash, MyCompress, 32>,
+                    ExtensionMmcs<
+                        Bn254Fr,
+                        FakeExtension,
+                        MerkleTreeMmcs<Bn254Fr, u8, FieldHash, MyCompress, 32>,
+                    >,
+                >,
+                TwoAdicMultiplicativeCoset<Bn254Fr>,
+            >(pcs, &[&[pp.num_vars; 1]], vec_uint);
+
+        unsafe {
+            STORAGE.commits_by_round = Some(commits_by_round);
+            STORAGE.data_by_round = Some(data_by_round);
+            STORAGE.challenger = Some(challenger);
+            STORAGE.domains_and_polys_by_round = Some(domains_and_polys_by_round);
+        };
 
         let mut commitment =
             evaluate_over_foldable_domain(pp.log_rate, poly.coeffs().to_vec(), &pp.table);
@@ -396,13 +468,21 @@ where
         //	let key = "RAYON_NUM_THREADS";
         //	env::set_var(key, "8");
 
-        // let pcs = unsafe { STORAGE.pcs.clone().unwrap() };
-        // let prover_data = unsafe { STORAGE.data_by_round.clone().unwrap() };
-        // let rounds = vec![(prover_data[0], vec![vec![point.clone()]])];
-        // let perm = unsafe { STORAGE.perm.clone().unwrap() };
-        // let (_, proof) = pcs.open(rounds, &mut Challenger::new(perm.clone()));
+        let pcs = unsafe { STORAGE.pcs.clone().unwrap() };
+        let prover_data = unsafe { STORAGE.data_by_round.clone().unwrap() };
+        let mut challenger = unsafe { STORAGE.challenger.clone().unwrap() };
+        let commits_by_round = unsafe { STORAGE.commits_by_round.clone().unwrap() };
+        challenger.observe_slice(&commits_by_round);
+        let challenge = challenger.sample_ext_element();
 
-        open_helper(pp, poly, comm, point, eval, transcript).0
+        let rounds = vec![(&prover_data[0], vec![vec![challenge]])];
+        let (opening_by_round, proof) = pcs.open(rounds, &mut challenger);
+        unsafe {
+            STORAGE.opening_by_round = Some(opening_by_round);
+            STORAGE.proof = Some(proof);
+        }
+
+        p3_open_helper(pp, poly, comm, point, eval, transcript).0
     }
 
     fn batch_open<'a>(
@@ -428,7 +508,7 @@ where
 
         Ok(roots
             .iter()
-            .map(|r| FriCommitment::from_root(r.clone()))
+            .map(|r| P3FriCommitment::from_root(r.clone()))
             .collect_vec())
     }
 
@@ -439,7 +519,37 @@ where
         eval: &F,
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
-        verify_helper(vp, comm, point, eval, transcript).0
+        let commits_by_round = unsafe { STORAGE.commits_by_round.clone().unwrap() };
+        let domains_and_polys_by_round =
+            unsafe { STORAGE.domains_and_polys_by_round.clone().unwrap() };
+        let opening_by_round = unsafe { STORAGE.opening_by_round.clone().unwrap() };
+        let pcs = unsafe { STORAGE.pcs.clone().unwrap() };
+        let proof = unsafe { STORAGE.proof.clone().unwrap() };
+        let mut challenger = unsafe { STORAGE.challenger.clone().unwrap() };
+        challenger.observe_slice(&commits_by_round);
+        let challenge = challenger.sample_ext_element();
+
+        let commits_and_claims_by_round = izip!(
+            commits_by_round,
+            domains_and_polys_by_round,
+            opening_by_round
+        )
+        .map(|(commit, domains_and_polys, openings)| {
+            let claims = domains_and_polys
+                .iter()
+                .zip(openings)
+                .map(|((domain, _), mat_openings)| {
+                    (*domain, vec![(challenge, mat_openings[0].clone())])
+                })
+                .collect_vec();
+            (commit, claims)
+        })
+        .collect_vec();
+
+        pcs.verify(commits_and_claims_by_round, &proof, &mut challenger)
+            .unwrap();
+
+        p3_verify_helper(vp, comm, point, eval, transcript).0
     }
 
     fn batch_verify<'a>(
@@ -961,7 +1071,7 @@ fn virtual_open<F: PrimeField>(
 //outputs (trees, oracles, eval)
 fn commit_phase<F: PrimeField, H: Hash>(
     point: &Point<F, UnivariatePolynomial<F, CoefficientBasis>>,
-    comm: &FriCommitment<F, H>,
+    comm: &P3FriCommitment<F, H>,
     transcript: &mut impl TranscriptWrite<Output<H>, F>,
     num_vars: usize,
     num_rounds: usize,
@@ -999,7 +1109,7 @@ fn commit_phase<F: PrimeField, H: Hash>(
 
 fn query_phase<F: PrimeField, H: Hash>(
     transcript: &mut impl TranscriptWrite<Output<H>, F>,
-    comm: &FriCommitment<F, H>,
+    comm: &P3FriCommitment<F, H>,
     oracles: &Vec<Vec<F>>,
     num_verifier_queries: usize,
 ) -> (Vec<(Vec<(F, F)>, Vec<usize>)>, Vec<usize>) {
@@ -1042,7 +1152,7 @@ fn get_query_indices<F: PrimeField>(rand_queries: &Vec<F>, codeword_len: usize) 
 
 fn query_top_level<F: PrimeField, H: Hash>(
     transcript: &mut impl TranscriptWrite<Output<H>, F>,
-    comm: &FriCommitment<F, H>,
+    comm: &P3FriCommitment<F, H>,
     queries_usize: &Vec<usize>,
 ) -> (Vec<(F, F)>, Vec<Vec<(Output<H>, Output<H>)>>) {
     let mut queried_els = Vec::with_capacity(queries_usize.len());
@@ -1215,10 +1325,10 @@ fn query_codeword<F: PrimeField, H: Hash>(
         get_merkle_path::<H, F>(&codeword_tree, *query, true),
     );
 }
-pub fn open_helper<F: PrimeField, H: Hash>(
-    pp: &FriProverParams<F>,
+pub fn p3_open_helper<F: PrimeField, H: Hash>(
+    pp: &P3FriProverParams<F>,
     poly: &UnivariatePolynomial<F, CoefficientBasis>,
-    comm: &FriCommitment<F, H>,
+    comm: &P3FriCommitment<F, H>,
     point: &F,
     eval: &F,
     transcript: &mut impl TranscriptWrite<Output<H>, F>,
@@ -1263,7 +1373,7 @@ pub fn open_helper<F: PrimeField, H: Hash>(
     //	println!("merkle tree {:?}", m.elapsed());
     //	println!("extra overhead {:?}", now.elapsed());
 
-    let evaluation_commitment = FriCommitment {
+    let evaluation_commitment = P3FriCommitment {
         codeword: evaluation_codeword,
         codeword_tree: evaluation_tree,
     };
@@ -1378,9 +1488,9 @@ pub fn open_helper<F: PrimeField, H: Hash>(
     (Ok(()), (queried_els, queries_usize))
 }
 
-pub fn verify_helper<F: PrimeField, H: Hash>(
-    vp: &FriVerifierParams<F>,
-    comm: &FriCommitment<F, H>,
+pub fn p3_verify_helper<F: PrimeField, H: Hash>(
+    vp: &P3FriVerifierParams<F>,
+    comm: &P3FriCommitment<F, H>,
     point: &F,
     eval: &F,
     transcript: &mut impl TranscriptRead<Output<H>, F>,
