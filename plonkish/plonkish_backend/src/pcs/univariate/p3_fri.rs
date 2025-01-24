@@ -1632,6 +1632,71 @@ pub fn p3_verify_helper<F: PrimeField, H: Hash>(
 
     //        println!("Fri effective proof size {:?}", size);
 
+    //read remaining paths for consistency check with evaluation polynomial
+    let remaining_queries = vp.udr_queries.checked_sub(vp.num_verifier_queries);
+    let (
+        mut queries_usize,
+        mut eval_queried_els,
+        mut eval_paths,
+        mut comm_queried_els,
+        mut comm_paths,
+    ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+
+    if let Some(a) = remaining_queries {
+        let rand_queries = transcript.squeeze_challenges(a);
+        queries_usize = get_query_indices(&rand_queries, 1 << (vp.num_vars + vp.log_rate));
+        for i in 0..a {
+            eval_queried_els.push(transcript.read_field_elements(2).unwrap());
+            size = size + 2 * field_size;
+        }
+        for i in 0..a {
+            comm_queried_els.push(transcript.read_field_elements(2).unwrap());
+            size = size + 2 * field_size;
+        }
+        for i in 0..a {
+            let merkle_path = transcript
+                .read_commitments(2 * (vp.num_vars + vp.log_rate))
+                .unwrap();
+            size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
+            let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+            eval_paths.push(chunked_path);
+        }
+        for i in 0..a {
+            let merkle_path = transcript
+                .read_commitments(2 * (vp.num_vars + vp.log_rate))
+                .unwrap();
+            size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
+            let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+            comm_paths.push(chunked_path);
+        }
+    }
+    let now = Instant::now();
+    for i in 0..eval_paths.len() {
+        authenticate_merkle_path::<H, F>(
+            &eval_paths[i],
+            (eval_queried_els[i][0], eval_queried_els[i][1]),
+            queries_usize[i],
+        );
+
+        authenticate_merkle_path::<H, F>(
+            &comm_paths[i],
+            (comm_queried_els[i][0], comm_queried_els[i][1]),
+            queries_usize[i],
+        );
+    }
+    //        println!("authenticate time {:?}", now.elapsed());
+    //verify corresponding queries are related correctly
+    let now = Instant::now();
+    for i in 0..eval_queried_els.len() {
+        let sim_query_0 = (comm_queried_els[i][0] - eval) * (F::ONE - point).invert().unwrap();
+        let sim_query_1 = (comm_queried_els[i][1] - eval) * (F::ONE - point).invert().unwrap();
+        assert_eq!(sim_query_0, eval_queried_els[i][0]);
+        assert_eq!(sim_query_1, eval_queried_els[i][1]);
+    }
+    //	println!("corresponding queries {:?}", now.elapsed().as_millis());
+
+    //        println!("Fri effective proof size {:?}", size);
+
     virtual_open(
         vp.num_vars,
         vp.num_rounds,
