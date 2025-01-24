@@ -1,3 +1,11 @@
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    sync::{Arc, Mutex},
+};
+
+use ff::PrimeField;
+use halo2_curves::bn256::Fr;
 use p3_baby_bear::{BabyBear, BabyBearParameters, Poseidon2BabyBear};
 use p3_bn254_fr::{Bn254Fr, FakeExtension};
 use p3_challenger::{
@@ -15,6 +23,7 @@ use p3_monty_31::MontyField31;
 use p3_symmetric::{
     CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher64, TruncatedPermutation,
 };
+use serde::{de::DeserializeOwned, Serialize};
 
 pub type Val = Bn254Fr;
 pub type Challenge = FakeExtension;
@@ -34,22 +43,27 @@ pub type Dft = Radix2DitParallel<Val>;
 
 pub type MyPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
 
-#[derive(Clone)]
+pub const MAX_POLYS: usize = 10000;
+
 pub struct Storage {
-    pub pcs: Option<MyPcs>,
-    pub domains_and_polys_by_round: Option<
+    pub counter: Mutex<u8>,
+    pub pcs: Option<Arc<Mutex<MyPcs>>>,
+    pub domains_and_polys_by_round: [Option<
         Vec<
             Vec<(
                 TwoAdicMultiplicativeCoset<Bn254Fr>,
                 DenseMatrix<Bn254Fr, Vec<Bn254Fr>>,
             )>,
         >,
-    >,
-    pub commits_by_round: Option<Vec<p3_symmetric::Hash<Bn254Fr, u8, 32>>>,
-    pub data_by_round: Option<Vec<MerkleTree<Bn254Fr, u8, DenseMatrix<Bn254Fr, Vec<Bn254Fr>>, 32>>>,
-    pub opening_by_round: Option<Vec<Vec<Vec<Vec<FakeExtension>>>>>,
-    pub challenger: Option<SerializingChallenger64<Bn254Fr, HashChallenger<u8, Keccak256Hash, 32>>>,
-    pub proof: Option<
+    >; MAX_POLYS],
+    pub commits_by_round: [Option<Vec<p3_symmetric::Hash<Bn254Fr, u8, 32>>>; MAX_POLYS],
+    pub data_by_round:
+        [Option<Vec<MerkleTree<Bn254Fr, u8, DenseMatrix<Bn254Fr, Vec<Bn254Fr>>, 32>>>; MAX_POLYS],
+    pub opening_by_round: [Option<Vec<Vec<Vec<Vec<FakeExtension>>>>>; MAX_POLYS],
+    pub challenger: [Option<
+        SerializingChallenger64<Bn254Fr, HashChallenger<u8, Keccak256Hash, 32>>,
+    >; MAX_POLYS],
+    pub proof: [Option<
         FriProof<
             FakeExtension,
             ExtensionMmcs<
@@ -77,17 +91,18 @@ pub struct Storage {
                 >,
             >,
         >,
-    >,
+    >; MAX_POLYS],
 }
 
 pub static mut STORAGE: Storage = Storage {
+    counter: Mutex::new(0),
     pcs: None,
-    domains_and_polys_by_round: None,
-    commits_by_round: None,
-    data_by_round: None,
-    opening_by_round: None,
-    proof: None,
-    challenger: None,
+    domains_and_polys_by_round: [const { None }; MAX_POLYS],
+    commits_by_round: [const { None }; MAX_POLYS],
+    data_by_round: [const { None }; MAX_POLYS],
+    opening_by_round: [const { None }; MAX_POLYS],
+    proof: [const { None }; MAX_POLYS],
+    challenger: [const { None }; MAX_POLYS],
 };
 
 pub fn get_pcs(log_blowup: usize) -> MyPcs {

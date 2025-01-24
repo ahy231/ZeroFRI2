@@ -36,8 +36,8 @@ use p3_challenger::{
 };
 use p3_commit::{ExtensionMmcs, Pcs, PolynomialSpace, TwoAdicMultiplicativeCoset};
 use p3_dft::Radix2DitParallel;
-use p3_field::extension::BinomialExtensionField;
 use p3_field::ExtensionField;
+use p3_field::{extension::BinomialExtensionField, FieldAlgebra};
 use p3_fri::{FriConfig, TwoAdicFriPcs};
 use p3_keccak::Keccak256Hash;
 use p3_matrix::dense::{DenseMatrix, RowMajorMatrix};
@@ -56,7 +56,13 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelBridge;
-use std::{collections::HashMap, iter, ops::Deref, time::Instant};
+use std::{
+    collections::HashMap,
+    iter,
+    ops::Deref,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use plonky2_util::{reverse_bits, reverse_index_bits_in_place};
 use rand_chacha::{rand_core::RngCore, ChaCha12Rng};
@@ -67,7 +73,7 @@ use rayon::prelude::{
 use std::{borrow::Cow, marker::PhantomData, mem::size_of, slice};
 
 use crate::util::storage::{
-    ChallengeMmcs, Dft, FieldHash, MyCompress, MyPcs, Val, ValMmcs, STORAGE,
+    ChallengeMmcs, Dft, FieldHash, MyCompress, MyPcs, Val, ValMmcs, MAX_POLYS, STORAGE,
 };
 
 fn commit_helper<Challenge, Challenger, P, Domain>(
@@ -90,18 +96,16 @@ where
     let num_rounds = log_degrees_by_round.len();
     let mut rng = rand::thread_rng();
 
-    let coeffs_bn254: Vec<Bn254Fr> = vec_uint
-        .into_iter()
-        .map(|u| {
-            let mut bytes = [0u8; 32];
-            for (i, c) in u.to_bytes_le().iter().enumerate() {
-                bytes[i] = *c;
-            }
-            Bn254Fr {
-                value: FFBn254Fr::from_bytes(&bytes).unwrap(),
-            }
-        })
-        .collect_vec();
+    let mut coeffs_bn254 = vec![Bn254Fr::ZERO; 1 << log_degrees_by_round[0][0]];
+    for i in 0..vec_uint.len() {
+        let mut bytes = [0u8; 32];
+        for (j, c) in vec_uint[i].to_bytes_le().iter().enumerate() {
+            bytes[j] = *c;
+        }
+        coeffs_bn254[i] = Bn254Fr {
+            value: FFBn254Fr::from_bytes(&bytes).unwrap(),
+        };
+    }
 
     let domains_and_polys_by_round = log_degrees_by_round
         .iter()
@@ -110,8 +114,6 @@ where
                 .iter()
                 .map(|&log_degree| {
                     let d = 1 << log_degree;
-                    // random width 5-15
-                    let width = 5 + rng.gen_range(0..=10);
                     (
                         pcs.natural_domain_for_degree(d),
                         // RowMajorMatrix::<Val>::rand(&mut rng, d, width),
@@ -168,6 +170,7 @@ pub struct P3FriVerifierParams<F: PrimeField> {
 pub struct P3FriCommitment<F: PrimeField, H: Hash> {
     pub codeword: Vec<F>,
     pub codeword_tree: Vec<Vec<Output<H>>>,
+    pub index: usize,
 }
 
 impl<F: PrimeField, H: Hash> P3FriCommitment<F, H> {
@@ -175,6 +178,7 @@ impl<F: PrimeField, H: Hash> P3FriCommitment<F, H> {
         Self {
             codeword: Vec::new(),
             codeword_tree: vec![vec![root]],
+            index: 0,
         }
     }
 }
@@ -225,6 +229,7 @@ impl<F: PrimeField, H: Hash> AdditiveCommitment<F> for P3FriCommitment<F, H> {
         Self {
             codeword: new_codeword,
             codeword_tree: tree,
+            index: 0,
         }
     }
 }
@@ -245,8 +250,14 @@ where
         let lg_n: usize = rate + log2_strict(poly_size);
 
         let pcs = get_pcs(lg_n);
+        let challenger = Challenger::from_hasher(vec![], ByteHash {});
+        for i in 0..MAX_POLYS {
+            unsafe {
+                STORAGE.challenger[i] = Some(challenger.clone());
+            }
+        }
         unsafe {
-            STORAGE.pcs = Some(pcs);
+            STORAGE.pcs = Some(Arc::new(Mutex::new(pcs)));
         }
 
         let mut bases = Vec::with_capacity(lg_n);
@@ -342,6 +353,7 @@ where
         ))
     }
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
+        let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
         let pcs: TwoAdicFriPcs<
             Bn254Fr,
             Radix2DitParallel<Bn254Fr>,
@@ -363,11 +375,10 @@ where
                     32,
                 >,
             >,
-        > = unsafe { STORAGE.pcs.clone().unwrap() };
-        let mut challenger = unsafe { STORAGE.challenger.clone().unwrap() };
+        > = p.lock().unwrap().clone();
 
         let mut vec_uint: Vec<BigUint> = vec![];
-        for f in poly.coeffs() {
+        for f in poly.coeffs().clone() {
             let mut sum = BigUint::from_bytes_le(&[0]);
             let f_str = format!("{:?}", f);
             let mut u256_str = f_str.split_at(2).1;
@@ -398,11 +409,15 @@ where
                 TwoAdicMultiplicativeCoset<Bn254Fr>,
             >(pcs, &[&[pp.num_vars; 1]], vec_uint);
 
+        let mut counter = unsafe { &STORAGE.counter };
+        let mut counter = counter.lock().unwrap();
+        let cc = counter.to_le() as usize;
+        *counter += 1;
+
         unsafe {
-            STORAGE.commits_by_round = Some(commits_by_round);
-            STORAGE.data_by_round = Some(data_by_round);
-            STORAGE.challenger = Some(challenger);
-            STORAGE.domains_and_polys_by_round = Some(domains_and_polys_by_round);
+            STORAGE.commits_by_round[cc] = Some(commits_by_round);
+            STORAGE.data_by_round[cc] = Some(data_by_round);
+            STORAGE.domains_and_polys_by_round[cc] = Some(domains_and_polys_by_round);
         };
 
         let mut commitment =
@@ -416,6 +431,7 @@ where
         Ok(Self::Commitment {
             codeword: commitment,
             codeword_tree: tree,
+            index: cc,
         })
     }
 
@@ -468,18 +484,19 @@ where
         //	let key = "RAYON_NUM_THREADS";
         //	env::set_var(key, "8");
 
-        let pcs = unsafe { STORAGE.pcs.clone().unwrap() };
-        let prover_data = unsafe { STORAGE.data_by_round.clone().unwrap() };
-        let mut challenger = unsafe { STORAGE.challenger.clone().unwrap() };
-        let commits_by_round = unsafe { STORAGE.commits_by_round.clone().unwrap() };
+        let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
+        let pcs = p.lock().unwrap().clone();
+        let prover_data = unsafe { STORAGE.data_by_round[comm.index].clone().unwrap() };
+        let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
+        let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
         challenger.observe_slice(&commits_by_round);
         let challenge = challenger.sample_ext_element();
 
         let rounds = vec![(&prover_data[0], vec![vec![challenge]])];
         let (opening_by_round, proof) = pcs.open(rounds, &mut challenger);
         unsafe {
-            STORAGE.opening_by_round = Some(opening_by_round);
-            STORAGE.proof = Some(proof);
+            STORAGE.opening_by_round[comm.index] = Some(opening_by_round);
+            STORAGE.proof[comm.index] = Some(proof);
         }
 
         p3_open_helper(pp, poly, comm, point, eval, transcript).0
@@ -519,13 +536,17 @@ where
         eval: &F,
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
-        let commits_by_round = unsafe { STORAGE.commits_by_round.clone().unwrap() };
-        let domains_and_polys_by_round =
-            unsafe { STORAGE.domains_and_polys_by_round.clone().unwrap() };
-        let opening_by_round = unsafe { STORAGE.opening_by_round.clone().unwrap() };
-        let pcs = unsafe { STORAGE.pcs.clone().unwrap() };
-        let proof = unsafe { STORAGE.proof.clone().unwrap() };
-        let mut challenger = unsafe { STORAGE.challenger.clone().unwrap() };
+        let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
+        let domains_and_polys_by_round = unsafe {
+            STORAGE.domains_and_polys_by_round[comm.index]
+                .clone()
+                .unwrap()
+        };
+        let opening_by_round = unsafe { STORAGE.opening_by_round[comm.index].clone().unwrap() };
+        let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
+        let pcs = p.lock().unwrap().clone();
+        let proof = unsafe { STORAGE.proof[comm.index].clone().unwrap() };
+        let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
         challenger.observe_slice(&commits_by_round);
         let challenge = challenger.sample_ext_element();
 
@@ -1376,6 +1397,7 @@ pub fn p3_open_helper<F: PrimeField, H: Hash>(
     let evaluation_commitment = P3FriCommitment {
         codeword: evaluation_codeword,
         codeword_tree: evaluation_tree,
+        index: comm.index,
     };
 
     let cp = Instant::now();

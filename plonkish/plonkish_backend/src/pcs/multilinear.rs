@@ -5,6 +5,7 @@ use crate::{
     Error,
 };
 
+mod basefold;
 mod brakedown;
 mod gemini;
 mod hyrax;
@@ -12,12 +13,14 @@ mod ipa;
 mod kzg;
 mod zeromorph;
 mod zeromorph_fri;
-mod basefold;
+pub mod zeromorph_p3fri;
+pub use basefold::{
+    evaluate_over_foldable_domain, interpolate_over_boolean_hypercube_with_copy, Basefold,
+    BasefoldCommitment, BasefoldExtParams, BasefoldParams, BasefoldProverParams,
+    BasefoldVerifierParams, Type1Polynomial, Type2Polynomial,
+};
 pub use brakedown::{
     MultilinearBrakedown, MultilinearBrakedownCommitment, MultilinearBrakedownParams,
-};
-pub use basefold::{
-    Basefold, BasefoldCommitment, BasefoldParams, BasefoldExtParams, Type1Polynomial, Type2Polynomial, interpolate_over_boolean_hypercube_with_copy, BasefoldVerifierParams, evaluate_over_foldable_domain, BasefoldProverParams
 };
 pub use gemini::Gemini;
 pub use hyrax::{MultilinearHyrax, MultilinearHyraxCommitment, MultilinearHyraxParams};
@@ -294,59 +297,58 @@ mod test {
         },
     };
     use rand::{rngs::OsRng, Rng};
-    use std::{iter,time::Instant};
+    use std::{iter, time::Instant};
     #[test]
-    fn test_transcript(){
-    use crate::{
-        pcs::multilinear::{
-            basefold::Basefold,
-            test::{run_batch_commit_open_verify, run_commit_open_verify},
-        },
-        util::{
-            hash::{Hash, Keccak256, Output,Blake2s},
-	    new_fields::{Mersenne127,Mersenne61}
-        },
-    };
-	use halo2_curves::bn256::{Bn256, Fr};
-	use crate::util::transcript::Blake2sTranscript;
-	use crate::util::transcript::FieldTranscriptWrite;
-	use crate::util::transcript::FieldTranscript;
-	use crate::pcs::multilinear::basefold::BasefoldExtParams;
-	#[derive(Debug)]
-	pub struct Five {}
+    fn test_transcript() {
+        use crate::pcs::multilinear::basefold::BasefoldExtParams;
+        use crate::util::transcript::Blake2sTranscript;
+        use crate::util::transcript::FieldTranscript;
+        use crate::util::transcript::FieldTranscriptWrite;
+        use crate::{
+            pcs::multilinear::{
+                basefold::Basefold,
+                test::{run_batch_commit_open_verify, run_commit_open_verify},
+            },
+            util::{
+                hash::{Blake2s, Hash, Keccak256, Output},
+                new_fields::{Mersenne127, Mersenne61},
+            },
+        };
+        use halo2_curves::bn256::{Bn256, Fr};
+        #[derive(Debug)]
+        pub struct Five {}
 
-	impl BasefoldExtParams for Five{
-	    fn get_reps()->usize{
-		return 5;
-	    }
-	    fn get_rate() -> usize{
-		return 1;
+        impl BasefoldExtParams for Five {
+            fn get_reps() -> usize {
+                return 5;
+            }
+            fn get_rate() -> usize {
+                return 1;
+            }
+            fn get_basecode_rounds() -> usize {
+                return 1;
+            }
+            fn get_rs_basecode() -> bool {
+                true
+            }
+        }
 
-	    }
-	    fn get_basecode_rounds() -> usize{
-		return 1;
-	    }
-	    fn get_rs_basecode() -> bool{
-		true
-	    }
-	}
-
-	type Pcs = Basefold<Fr, Blake2s,Five>;
-	let num_vars = 10;
-	let mut rng = OsRng;
-	let poly_size = 1 << num_vars;
-	let mut transcript = Blake2sTranscript::new(());
-	let poly = MultilinearPolynomial::rand(num_vars, OsRng);
+        type Pcs = Basefold<Fr, Blake2s, Five>;
+        let num_vars = 10;
+        let mut rng = OsRng;
+        let poly_size = 1 << num_vars;
+        let mut transcript = Blake2sTranscript::new(());
+        let poly = MultilinearPolynomial::rand(num_vars, OsRng);
         let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
 
-       let (pp,vp) = Pcs::trim(&param, poly_size, 1).unwrap();
-	println!("before commit");          ;
+        let (pp, vp) = Pcs::trim(&param, poly_size, 1).unwrap();
+        println!("before commit");
         let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
         let point = transcript.squeeze_challenges(num_vars);
-       let eval = poly.evaluate(point.as_slice());
-      Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
+        let eval = poly.evaluate(point.as_slice());
+        Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
         let proof = transcript.into_proof();
-	println!("transcript commit len {:?}", proof.len() * 8);
+        println!("transcript commit len {:?}", proof.len() * 8);
     }
 
     pub(super) fn run_commit_open_verify<F, Pcs, T>()
@@ -357,32 +359,31 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 10..25  {
-	    println!("k {:?}", num_vars);
+        for num_vars in 10..25 {
+            println!("k {:?}", num_vars);
             // Setup
             let (pp, vp) = {
                 let mut rng = OsRng;
                 let poly_size = 1 << num_vars;
                 let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
-		println!("before trim");
+                println!("before trim");
                 Pcs::trim(&param, poly_size, 1).unwrap()
-
             };
-	    println!("after trim");
+            println!("after trim");
             // Commit and open
             let proof = {
                 let mut transcript = T::new(());
                 let poly = MultilinearPolynomial::rand(num_vars, OsRng);
-		let now = Instant::now();
+                let now = Instant::now();
 
                 let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
-		println!("comm time {:?}", now.elapsed());
+                println!("comm time {:?}", now.elapsed());
                 let point = transcript.squeeze_challenges(num_vars);
                 let eval = poly.evaluate(point.as_slice());
                 transcript.write_field_element(&eval).unwrap();
-		let now2 = Instant::now();
+                let now2 = Instant::now();
                 Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
-		println!("proximity time {:?}", now2.elapsed());
+                println!("proximity time {:?}", now2.elapsed());
 
                 transcript.into_proof()
             };
@@ -409,8 +410,8 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 10..11{
-	    println!("k {:?}", num_vars);
+        for num_vars in 10..11 {
+            println!("k {:?}", num_vars);
             let batch_size = 2;
             let num_points = batch_size >> 1;
             let mut rng = OsRng;
@@ -428,16 +429,16 @@ mod test {
                     .take(batch_size)
             ]
             .unique()
-		.collect_vec();
+            .collect_vec();
 
             let proof = {
                 let mut transcript = T::new(());
                 let polys = iter::repeat_with(|| MultilinearPolynomial::rand(num_vars, OsRng))
                     .take(batch_size)
                     .collect_vec();
-		let now = Instant::now();
+                let now = Instant::now();
                 let comms = Pcs::batch_commit_and_write(&pp, &polys, &mut transcript).unwrap();
-		println!("commit {:?}", now.elapsed());
+                println!("commit {:?}", now.elapsed());
 
                 let points = iter::repeat_with(|| transcript.squeeze_challenges(num_vars))
                     .take(num_points)
@@ -455,32 +456,26 @@ mod test {
                 transcript
                     .write_field_elements(evals.iter().map(Evaluation::value))
                     .unwrap();
-		let now = Instant::now();
+                let now = Instant::now();
                 Pcs::batch_open(&pp, &polys, &comms, &points, &evals, &mut transcript).unwrap();
-		println!("batch open {:?}", now.elapsed());
+                println!("batch open {:?}", now.elapsed());
                 transcript.into_proof()
-
-
             };
             // Batch verify
             let result = {
                 let mut transcript = T::from_proof((), proof.as_slice());
-		let comms = &Pcs::read_commitments(&vp, batch_size, &mut transcript).unwrap();
-
+                let comms = &Pcs::read_commitments(&vp, batch_size, &mut transcript).unwrap();
 
                 let challenges = &iter::repeat_with(|| transcript.squeeze_challenges(num_vars))
-                        .take(num_points)
-                        .collect_vec();
+                    .take(num_points)
+                    .collect_vec();
 
-
-
-		let evals2 = transcript.read_field_elements(evals.len()).unwrap();
-
+                let evals2 = transcript.read_field_elements(evals.len()).unwrap();
 
                 Pcs::batch_verify(
                     &vp,
-		    comms,
-		    challenges,
+                    comms,
+                    challenges,
                     &evals
                         .iter()
                         .copied()
@@ -491,7 +486,7 @@ mod test {
                 )
             };
 
-	    assert_eq!(result, Ok(()));
+            assert_eq!(result, Ok(()));
         }
     }
 }

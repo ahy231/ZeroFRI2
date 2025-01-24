@@ -88,6 +88,9 @@ timer = [
 [[bench]]
 name = "plonky3_pcs_bench"
 harness = false
+[[bench]]
+name = "p3_proof_system"
+harness = false
 
 [[bin]]
 name = "plotter"
