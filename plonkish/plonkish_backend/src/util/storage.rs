@@ -46,7 +46,7 @@ pub type MyPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
 pub const MAX_POLYS: usize = 10000;
 
 pub struct Storage {
-    pub counter: Mutex<u8>,
+    pub counter: Mutex<u128>,
     pub pcs: Option<Arc<Mutex<MyPcs>>>,
     pub domains_and_polys_by_round: [Option<
         Vec<
