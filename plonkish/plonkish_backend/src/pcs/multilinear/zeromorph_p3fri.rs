@@ -3,11 +3,14 @@ use crate::piop::sum_check::{
     classic::{ClassicSumCheck, CoefficientsProver},
     eq_xy_eval, SumCheck as _, VirtualPolynomial,
 };
-use crate::util::hash::Output;
+use crate::util::hash::{Blake2s, Output};
+use crate::util::transcript::{Blake2sTranscript, FiatShamirTranscript, FieldTranscript};
+use halo2_curves::bn256::Fr;
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
     ParallelSlice, ParallelSliceMut,
 };
+use std::io::Cursor;
 use std::{collections::HashMap, iter, ops::Deref, time::Instant};
 
 use crate::{
@@ -50,20 +53,16 @@ pub struct ZeromorphP3FriVerifierParam<F: PrimeField> {
     vp: P3FriVerifierParams<F>,
 }
 
-impl<F, H> PolynomialCommitmentScheme<F> for ZeromorphP3Fri<P3Fri<F, H>>
-where
-    F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-{
-    type Param = <P3Fri<F, H> as PolynomialCommitmentScheme<F>>::Param;
-    type ProverParam = ZeromorphP3FriProverParam<F>;
-    type VerifierParam = ZeromorphP3FriVerifierParam<F>;
-    type Polynomial = MultilinearPolynomial<F>;
-    type Commitment = <P3Fri<F, H> as PolynomialCommitmentScheme<F>>::Commitment;
-    type CommitmentChunk = <P3Fri<F, H> as PolynomialCommitmentScheme<F>>::CommitmentChunk;
+impl PolynomialCommitmentScheme<Fr> for ZeromorphP3Fri<P3Fri<Fr, Blake2s>> {
+    type Param = <P3Fri<Fr, Blake2s> as PolynomialCommitmentScheme<Fr>>::Param;
+    type ProverParam = ZeromorphP3FriProverParam<Fr>;
+    type VerifierParam = ZeromorphP3FriVerifierParam<Fr>;
+    type Polynomial = MultilinearPolynomial<Fr>;
+    type Commitment = <P3Fri<Fr, Blake2s> as PolynomialCommitmentScheme<Fr>>::Commitment;
+    type CommitmentChunk = <P3Fri<Fr, Blake2s> as PolynomialCommitmentScheme<Fr>>::CommitmentChunk;
 
     fn setup(poly_size: usize, batch_size: usize, rng: impl RngCore) -> Result<Self::Param, Error> {
-        P3Fri::<F, H>::setup(poly_size, batch_size, rng)
+        P3Fri::<Fr, Blake2s>::setup(poly_size, batch_size, rng)
     }
 
     fn trim(
@@ -71,7 +70,7 @@ where
         poly_size: usize,
         batch_size: usize,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), Error> {
-        let (commit_pp, vp) = P3Fri::<F, H>::trim(param, poly_size, batch_size)?;
+        let (commit_pp, vp) = P3Fri::<Fr, Blake2s>::trim(param, poly_size, batch_size)?;
 
         Ok((
             ZeromorphP3FriProverParam { commit_pp },
@@ -107,9 +106,9 @@ where
         pp: &Self::ProverParam,
         poly: &Self::Polynomial,
         comm: &Self::Commitment,
-        point: &Point<F, Self::Polynomial>,
-        eval: &F,
-        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+        point: &Point<Fr, Self::Polynomial>,
+        eval: &Fr,
+        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error> {
         let num_vars = poly.num_vars();
 
@@ -119,7 +118,8 @@ where
 
         let (quotients, remainder) = quotients(poly, point, |_, q| UnivariatePolynomial::new(q));
         let now = Instant::now();
-        let comms = P3Fri::<F, H>::batch_commit_and_write(&pp.commit_pp, &quotients, transcript)?;
+        let comms =
+            P3Fri::<Fr, Blake2s>::batch_commit_and_write(&pp.commit_pp, &quotients, transcript)?;
         //	println!("batch {:?} batch size {:?}", now.elapsed(),quotients.len());
 
         if cfg!(feature = "sanity-check") {
@@ -129,7 +129,7 @@ where
         let y = transcript.squeeze_challenge();
 
         let q_hat = {
-            let mut q_hat = vec![F::ZERO; 1 << num_vars];
+            let mut q_hat = vec![Fr::ZERO; 1 << num_vars];
             for (idx, (power_of_y, q)) in izip!(powers(y), &quotients).enumerate() {
                 let offset = (1 << num_vars) - (1 << idx);
                 parallelize(&mut q_hat[offset..], |(q_hat, start)| {
@@ -140,7 +140,7 @@ where
             UnivariatePolynomial::new(q_hat)
         };
 
-        P3Fri::<F, H>::commit_and_write(&pp.commit_pp, &q_hat, transcript)?;
+        P3Fri::<Fr, Blake2s>::commit_and_write(&pp.commit_pp, &q_hat, transcript)?;
 
         let x = transcript.squeeze_challenge();
         let z = transcript.squeeze_challenge();
@@ -153,21 +153,21 @@ where
         f[0] += eval_scalar * eval;
         izip!(&quotients, &q_scalars).for_each(|(q, scalar)| f += (scalar, q));
 
-        assert_eq!(f.evaluate(&x), F::ZERO);
-        let comm = P3Fri::<F, H>::commit_and_write(&pp.commit_pp, &f, transcript);
+        assert_eq!(f.evaluate(&x), Fr::ZERO);
+        let comm = P3Fri::<Fr, Blake2s>::commit_and_write(&pp.commit_pp, &f, transcript);
 
         //TODO: write queries to check later
 
-        P3Fri::<F, H>::open(&pp.commit_pp, &f, &comm.unwrap(), &x, &F::ZERO, transcript)
+        P3Fri::<Fr, Blake2s>::open(&pp.commit_pp, &f, &comm.unwrap(), &x, &Fr::ZERO, transcript)
     }
 
     fn batch_open<'a>(
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
-        points: &[Point<F, Self::Polynomial>],
-        evals: &[Evaluation<F>],
-        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+        points: &[Point<Fr, Self::Polynomial>],
+        evals: &[Evaluation<Fr>],
+        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error>
     where
         Self::Commitment: 'a,
@@ -181,14 +181,14 @@ where
 
         let eq_xt = MultilinearPolynomial::eq_xy(&t);
         let merged_polys = evals.iter().zip(eq_xt.evals().iter()).fold(
-            vec![(F::ONE, Cow::<MultilinearPolynomial<_>>::default()); points.len()],
+            vec![(Fr::ONE, Cow::<MultilinearPolynomial<_>>::default()); points.len()],
             |mut merged_polys, (eval, eq_xt_i)| {
                 if merged_polys[eval.point()].1.is_zero() {
                     merged_polys[eval.point()] = (*eq_xt_i, Cow::Borrowed(polys[eval.poly()]));
                 } else {
                     let coeff = merged_polys[eval.point()].0;
-                    if coeff != F::ONE {
-                        merged_polys[eval.point()].0 = F::ONE;
+                    if coeff != Fr::ONE {
+                        merged_polys[eval.point()].0 = Fr::ONE;
                         *merged_polys[eval.point()].1.to_mut() *= &coeff;
                     }
                     *merged_polys[eval.point()].1.to_mut() += (eq_xt_i, polys[eval.poly()]);
@@ -211,7 +211,7 @@ where
             .enumerate()
             .map(|(idx, (scalar, poly))| {
                 let poly = unique_merged_poly_indices[&addr_of!(*poly.deref())];
-                Expression::<F>::eq_xy(idx)
+                Expression::<Fr>::eq_xy(idx)
                     * Expression::Polynomial(Query::new(poly, Rotation::cur()))
                     * scalar
             })
@@ -260,7 +260,7 @@ where
             //	    println!("sum with scalar {:?}", now.elapsed().as_millis());
             (comm, g_prime.evaluate(&challenges))
         } else {
-            (Self::Commitment::default(), F::ZERO)
+            (Self::Commitment::default(), Fr::ZERO)
         };
 
         let point = challenges;
@@ -279,7 +279,7 @@ where
             quotients(&poly, &point[..], |_, q| UnivariatePolynomial::new(q));
         let now = Instant::now();
         let comms_P3Fri =
-            P3Fri::<F, H>::batch_commit_and_write(&pp.commit_pp, &quotients, transcript)?;
+            P3Fri::<Fr, Blake2s>::batch_commit_and_write(&pp.commit_pp, &quotients, transcript)?;
         //	println!("batch {:?} batch size {:?}", now.elapsed(),quotients.len());
 
         if cfg!(feature = "sanity-check") {
@@ -289,7 +289,7 @@ where
         let y = transcript.squeeze_challenge();
 
         let q_hat = {
-            let mut q_hat = vec![F::ZERO; 1 << num_vars];
+            let mut q_hat = vec![Fr::ZERO; 1 << num_vars];
             for (idx, (power_of_y, q)) in izip!(powers(y), &quotients).enumerate() {
                 let offset = (1 << num_vars) - (1 << idx);
                 parallelize(&mut q_hat[offset..], |(q_hat, start)| {
@@ -300,7 +300,7 @@ where
             UnivariatePolynomial::new(q_hat)
         };
 
-        P3Fri::<F, H>::commit_and_write(&pp.commit_pp, &q_hat, transcript)?;
+        P3Fri::<Fr, Blake2s>::commit_and_write(&pp.commit_pp, &q_hat, transcript)?;
 
         let x = transcript.squeeze_challenge();
         let z = transcript.squeeze_challenge();
@@ -313,16 +313,16 @@ where
         f[0] += eval_scalar * eval;
         izip!(&quotients, &q_scalars).for_each(|(q, scalar)| f += (scalar, q));
 
-        assert_eq!(f.evaluate(&x), F::ZERO);
-        let comm = P3Fri::<F, H>::commit_and_write(&pp.commit_pp, &f, transcript);
+        assert_eq!(f.evaluate(&x), Fr::ZERO);
+        let comm = P3Fri::<Fr, Blake2s>::commit_and_write(&pp.commit_pp, &f, transcript);
 
-        let (res, q) = p3_open_helper(&pp.commit_pp, &f, &comm.unwrap(), &x, &F::ZERO, transcript);
+        let (res, q) = p3_open_helper(&pp.commit_pp, &f, &comm.unwrap(), &x, &Fr::ZERO, transcript);
 
         let (queried_els, queries_usize) = q;
 
-        let mut individual_queries: Vec<Vec<(F, F)>> = Vec::with_capacity(queries_usize.len());
+        let mut individual_queries: Vec<Vec<(Fr, Fr)>> = Vec::with_capacity(queries_usize.len());
 
-        let mut individual_paths: Vec<Vec<Vec<(Output<H>, Output<H>)>>> =
+        let mut individual_paths: Vec<Vec<Vec<(Output<Blake2s>, Output<Blake2s>)>>> =
             Vec::with_capacity(queries_usize.len());
 
         for query in &queries_usize {
@@ -330,7 +330,7 @@ where
             let mut comm_paths = Vec::with_capacity(evals.len());
             for eval in evals {
                 let c = &comms[eval.poly()];
-                let res = query_codeword::<F, H>(query, &c.codeword, &c.codeword_tree);
+                let res = query_codeword::<Fr, Blake2s>(query, &c.codeword, &c.codeword_tree);
                 comm_queries.push(res.0);
                 comm_paths.push(res.1);
             }
@@ -359,7 +359,7 @@ where
     fn read_commitments(
         vp: &Self::VerifierParam,
         num_polys: usize,
-        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, Fr>,
     ) -> Result<Vec<Self::Commitment>, Error> {
         P3Fri::read_commitments(&vp.vp, num_polys, transcript)
     }
@@ -367,17 +367,17 @@ where
     fn verify(
         vp: &Self::VerifierParam,
         comm: &Self::Commitment,
-        point: &Point<F, Self::Polynomial>,
-        eval: &F,
-        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+        point: &Point<Fr, Self::Polynomial>,
+        eval: &Fr,
+        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error> {
         let num_vars = point.len();
 
-        let q_comms = P3Fri::<F, H>::read_commitments(&vp.vp, num_vars, transcript)?;
+        let q_comms = P3Fri::<Fr, Blake2s>::read_commitments(&vp.vp, num_vars, transcript)?;
 
         let y = transcript.squeeze_challenge();
 
-        let q_hat_comm = P3Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
+        let q_hat_comm = P3Fri::<Fr, Blake2s>::read_commitments(&vp.vp, 1, transcript)?;
 
         let x = transcript.squeeze_challenge();
         let z = transcript.squeeze_challenge();
@@ -386,19 +386,19 @@ where
 
         //        let scalars = chain![[F::ONE, z, eval_scalar * eval], q_scalars].collect_vec();
         //      let bases = chain![[q_hat_comm, comm.0, vp.g1()], q_comms].collect_vec();
-        let comm = P3Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
+        let comm = P3Fri::<Fr, Blake2s>::read_commitments(&vp.vp, 1, transcript)?;
 
         //check consistency of all commitments vis-a-vis batch commitments
 
-        P3Fri::verify(&vp.vp, &comm[0], &x, &F::ZERO, transcript)
+        P3Fri::verify(&vp.vp, &comm[0], &x, &Fr::ZERO, transcript)
     }
 
     fn batch_verify<'a>(
         vp: &Self::VerifierParam,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
-        points: &[Point<F, Self::Polynomial>],
-        evals: &[Evaluation<F>],
-        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+        points: &[Point<Fr, Self::Polynomial>],
+        evals: &[Evaluation<Fr>],
+        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error> {
         let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
         let comms = comms.into_iter().collect_vec();
@@ -420,14 +420,14 @@ where
 
         let comm = Self::Commitment::default();
         let point = verify_point;
-        let eval = F::ZERO;
+        let eval = Fr::ZERO;
         let num_vars = point.len();
 
-        let q_comms = P3Fri::<F, H>::read_commitments(&vp.vp, num_vars, transcript)?;
+        let q_comms = P3Fri::<Fr, Blake2s>::read_commitments(&vp.vp, num_vars, transcript)?;
 
         let y = transcript.squeeze_challenge();
 
-        let q_hat_comm = P3Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
+        let q_hat_comm = P3Fri::<Fr, Blake2s>::read_commitments(&vp.vp, 1, transcript)?;
 
         let x = transcript.squeeze_challenge();
         let z = transcript.squeeze_challenge();
@@ -436,9 +436,9 @@ where
 
         //        let scalars = chain![[F::ONE, z, eval_scalar * eval], q_scalars].collect_vec();
         //      let bases = chain![[q_hat_comm, comm.0, vp.g1()], q_comms].collect_vec();
-        let comm = P3Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
+        let comm = P3Fri::<Fr, Blake2s>::read_commitments(&vp.vp, 1, transcript)?;
 
-        let (v, queries_usize) = p3_verify_helper(&vp.vp, &comm[0], &x, &F::ZERO, transcript);
+        let (v, queries_usize) = p3_verify_helper(&vp.vp, &comm[0], &x, &Fr::ZERO, transcript);
 
         let mut ind_queries = Vec::with_capacity(vp.vp.num_verifier_queries);
         let mut count = 0;
@@ -478,7 +478,7 @@ where
                                     batch_paths[vq][cq].pop().unwrap().pop().unwrap()
                                 );
                 */
-                authenticate_merkle_path::<H, F>(
+                authenticate_merkle_path::<Blake2s, Fr>(
                     &batch_paths[vq][cq],
                     (ind_queries[vq][cq][0], ind_queries[vq][cq][1]),
                     queries_usize[vq],

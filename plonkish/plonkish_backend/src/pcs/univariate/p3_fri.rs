@@ -8,11 +8,14 @@ use crate::{
         arithmetic::{div_ceil, horner, inner_product, steps, BatchInvert, Field, PrimeField},
         code::{Brakedown, BrakedownSpec, LinearCodes},
         expression::{Expression, Query, Rotation},
-        hash::{Hash, Output},
+        hash::{Blake2s, Hash, Output},
         new_fields,
         parallel::{num_threads, parallelize, parallelize_iter},
         storage::{ByteHash, Challenger},
-        transcript::{FieldTranscript, TranscriptRead, TranscriptWrite},
+        transcript::{
+            Blake2sTranscript, FiatShamirTranscript, FieldTranscript, FieldTranscriptWrite,
+            TranscriptRead, TranscriptWrite,
+        },
         BigUint, Deserialize, DeserializeOwned, Itertools, Serialize,
     },
     Error,
@@ -28,6 +31,11 @@ use bitvec::domain;
 use core::ptr::addr_of;
 use ctr::cipher::KeyInit;
 use ff::BatchInverter;
+use generic_array::{
+    typenum::{UInt, UTerm, B0, B1},
+    GenericArray,
+};
+use halo2_curves::bn256::Fr;
 use itertools::izip;
 use p3_baby_bear::{BabyBear, BabyBearParameters, Poseidon2BabyBear};
 use p3_bn254_fr::{Bn254Fr, FFBn254Fr, FakeExtension};
@@ -58,6 +66,7 @@ use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelBridge;
 use std::{
     collections::HashMap,
+    io::Cursor,
     iter,
     ops::Deref,
     sync::{Arc, Mutex},
@@ -233,17 +242,13 @@ impl<F: PrimeField, H: Hash> AdditiveCommitment<F> for P3FriCommitment<F, H> {
         }
     }
 }
-impl<F, H> PolynomialCommitmentScheme<F> for P3Fri<F, H>
-where
-    F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-{
-    type Param = P3FriParams<F>;
-    type ProverParam = P3FriProverParams<F>;
-    type VerifierParam = P3FriVerifierParams<F>;
-    type Polynomial = UnivariatePolynomial<F, CoefficientBasis>;
-    type Commitment = P3FriCommitment<F, H>;
-    type CommitmentChunk = Output<H>;
+impl PolynomialCommitmentScheme<Fr> for P3Fri<Fr, Blake2s> {
+    type Param = P3FriParams<Fr>;
+    type ProverParam = P3FriProverParams<Fr>;
+    type VerifierParam = P3FriVerifierParams<Fr>;
+    type Polynomial = UnivariatePolynomial<Fr, CoefficientBasis>;
+    type Commitment = P3FriCommitment<Fr, Blake2s>;
+    type CommitmentChunk = Output<Blake2s>;
 
     fn setup(poly_size: usize, _: usize, rng: impl RngCore) -> Result<Self::Param, Error> {
         let rate = 3;
@@ -261,7 +266,7 @@ where
         }
 
         let mut bases = Vec::with_capacity(lg_n);
-        let mut base = primitive_root_of_unity::<F>(lg_n);
+        let mut base = primitive_root_of_unity::<Fr>(lg_n);
         bases.push(base);
         for _ in 1..lg_n {
             base = base * base; // base = g^2^_
@@ -272,9 +277,9 @@ where
         for lg_m in 1..=lg_n {
             let half_m = 1 << (lg_m - 1);
             let base = bases[lg_n - lg_m];
-            let mut powers_iter = Powers::<F> {
+            let mut powers_iter = Powers::<Fr> {
                 base: base,
-                current: F::ONE,
+                current: Fr::ONE,
             };
 
             for j in 0..half_m.max(2) {
@@ -283,12 +288,12 @@ where
             }
         }
 
-        let mut weights: Vec<F> = root_table
+        let mut weights: Vec<Fr> = root_table
             .par_iter()
-            .map(|el| F::ZERO - *el - *el)
+            .map(|el| Fr::ZERO - *el - *el)
             .collect();
 
-        let mut scratch_space = vec![F::ZERO; weights.len()];
+        let mut scratch_space = vec![Fr::ZERO; weights.len()];
         BatchInverter::invert_with_external_scratch(&mut weights, &mut scratch_space);
 
         let mut flat_table_w_weights = root_table
@@ -420,25 +425,44 @@ where
             STORAGE.domains_and_polys_by_round[cc] = Some(domains_and_polys_by_round);
         };
 
-        let mut commitment =
-            evaluate_over_foldable_domain(pp.log_rate, poly.coeffs().to_vec(), &pp.table);
-        // let mut commitment = vec![];
+        if unsafe { STORAGE.recording } {
+            let mut recording_mutex = unsafe { STORAGE.recording_mutex.lock().unwrap() };
+            if recording_mutex[0] {
+                let result = unsafe { STORAGE.commit_result.clone().unwrap() };
+                return Ok(result);
+            }
 
-        reverse_index_bits_in_place(&mut commitment);
+            let mut commitment =
+                evaluate_over_foldable_domain(pp.log_rate, poly.coeffs().to_vec(), &pp.table);
+            // let mut commitment = vec![];
 
-        let tree = merkelize::<F, H>(&commitment);
+            reverse_index_bits_in_place(&mut commitment);
 
-        Ok(Self::Commitment {
-            codeword: commitment,
-            codeword_tree: tree,
-            index: cc,
-        })
+            let tree = merkelize::<Fr, Blake2s>(&commitment);
+
+            let result = Self::Commitment {
+                codeword: commitment,
+                codeword_tree: tree,
+                index: cc,
+            };
+
+            unsafe {
+                STORAGE.commit_result = Some(result.clone());
+            }
+
+            *recording_mutex = [true, false, false];
+
+            return Ok(result);
+        } else {
+            let result = unsafe { STORAGE.commit_result.clone().unwrap() };
+            return Ok(result);
+        }
     }
 
     fn batch_commit_and_write<'a>(
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
-        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, Fr>,
     ) -> Result<Vec<Self::Commitment>, Error>
     where
         Self::Polynomial: 'a,
@@ -475,29 +499,14 @@ where
         pp: &Self::ProverParam,
         poly: &Self::Polynomial,
         comm: &Self::Commitment,
-        point: &Point<F, Self::Polynomial>,
-        eval: &F,
-        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+        point: &Point<Fr, Self::Polynomial>,
+        eval: &Fr,
+        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error> {
         //construct evaluation codeword
         use std::env;
         //	let key = "RAYON_NUM_THREADS";
         //	env::set_var(key, "8");
-
-        let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
-        let pcs = p.lock().unwrap().clone();
-        let prover_data = unsafe { STORAGE.data_by_round[comm.index].clone().unwrap() };
-        let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
-        let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
-        challenger.observe_slice(&commits_by_round);
-        let challenge = challenger.sample_ext_element();
-
-        let rounds = vec![(&prover_data[0], vec![vec![challenge]])];
-        let (opening_by_round, proof) = pcs.open(rounds, &mut challenger);
-        unsafe {
-            STORAGE.opening_by_round[comm.index] = Some(opening_by_round);
-            STORAGE.proof[comm.index] = Some(proof);
-        }
 
         p3_open_helper(pp, poly, comm, point, eval, transcript).0
     }
@@ -506,9 +515,9 @@ where
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
-        points: &[Point<F, Self::Polynomial>],
-        evals: &[Evaluation<F>],
-        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+        points: &[Point<Fr, Self::Polynomial>],
+        evals: &[Evaluation<Fr>],
+        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error> {
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
@@ -519,7 +528,7 @@ where
     fn read_commitments(
         _: &Self::VerifierParam,
         num_polys: usize,
-        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, Fr>,
     ) -> Result<Vec<Self::Commitment>, Error> {
         let roots = transcript.read_commitments(num_polys).unwrap();
 
@@ -532,53 +541,19 @@ where
     fn verify(
         vp: &Self::VerifierParam,
         comm: &Self::Commitment,
-        point: &Point<F, Self::Polynomial>,
-        eval: &F,
-        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+        point: &Point<Fr, Self::Polynomial>,
+        eval: &Fr,
+        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error> {
-        let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
-        let domains_and_polys_by_round = unsafe {
-            STORAGE.domains_and_polys_by_round[comm.index]
-                .clone()
-                .unwrap()
-        };
-        let opening_by_round = unsafe { STORAGE.opening_by_round[comm.index].clone().unwrap() };
-        let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
-        let pcs = p.lock().unwrap().clone();
-        let proof = unsafe { STORAGE.proof[comm.index].clone().unwrap() };
-        let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
-        challenger.observe_slice(&commits_by_round);
-        let challenge = challenger.sample_ext_element();
-
-        let commits_and_claims_by_round = izip!(
-            commits_by_round,
-            domains_and_polys_by_round,
-            opening_by_round
-        )
-        .map(|(commit, domains_and_polys, openings)| {
-            let claims = domains_and_polys
-                .iter()
-                .zip(openings)
-                .map(|((domain, _), mat_openings)| {
-                    (*domain, vec![(challenge, mat_openings[0].clone())])
-                })
-                .collect_vec();
-            (commit, claims)
-        })
-        .collect_vec();
-
-        pcs.verify(commits_and_claims_by_round, &proof, &mut challenger)
-            .unwrap();
-
         p3_verify_helper(vp, comm, point, eval, transcript).0
     }
 
     fn batch_verify<'a>(
         vp: &Self::VerifierParam,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
-        points: &[Point<F, Self::Polynomial>],
-        evals: &[Evaluation<F>],
-        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+        points: &[Point<Fr, Self::Polynomial>],
+        evals: &[Evaluation<Fr>],
+        transcript: &mut impl TranscriptRead<Self::CommitmentChunk, Fr>,
     ) -> Result<(), Error> {
         let comms = comms.into_iter().collect_vec();
         Ok(())
@@ -790,10 +765,10 @@ fn get_merkle_path<H: Hash, F: PrimeField>(
     return queries;
 }
 
-fn write_merkle_path<H: Hash, F: PrimeField>(
-    tree: &Vec<Vec<Output<H>>>,
+fn write_merkle_path(
+    tree: &Vec<Vec<Output<Blake2s>>>,
     mut x_index: usize,
-    transcript: &mut impl TranscriptWrite<Output<H>, F>,
+    transcript: &mut impl TranscriptWrite<Output<Blake2s>, Fr>,
 ) {
     x_index >>= 1;
     for oracle in tree {
@@ -1090,14 +1065,14 @@ fn virtual_open<F: PrimeField>(
     assert_eq!(no.len(), 1);
 }
 //outputs (trees, oracles, eval)
-fn commit_phase<F: PrimeField, H: Hash>(
-    point: &Point<F, UnivariatePolynomial<F, CoefficientBasis>>,
-    comm: &P3FriCommitment<F, H>,
-    transcript: &mut impl TranscriptWrite<Output<H>, F>,
+fn commit_phase(
+    point: &Point<Fr, UnivariatePolynomial<Fr, CoefficientBasis>>,
+    comm: &P3FriCommitment<Fr, Blake2s>,
+    transcript: &mut impl TranscriptWrite<Output<Blake2s>, Fr>,
     num_vars: usize,
     num_rounds: usize,
-    table_w_weights: &Vec<Vec<(F, F)>>,
-) -> (Vec<Vec<Vec<Output<H>>>>, Vec<Vec<F>>) {
+    table_w_weights: &Vec<Vec<(Fr, Fr)>>,
+) -> (Vec<Vec<Vec<Output<Blake2s>>>>, Vec<Vec<Fr>>) {
     let mut oracles = Vec::with_capacity(num_vars);
 
     let mut trees = Vec::with_capacity(num_vars);
@@ -1110,9 +1085,9 @@ fn commit_phase<F: PrimeField, H: Hash>(
 
     for i in 0..(num_rounds) {
         transcript.write_commitment(&root).unwrap();
-        let challenge: F = transcript.squeeze_challenge();
+        let challenge: Fr = transcript.squeeze_challenge();
 
-        oracles.push(basefold_one_round_by_interpolation_weights::<F>(
+        oracles.push(basefold_one_round_by_interpolation_weights::<Fr>(
             &table_w_weights,
             i,
             new_oracle,
@@ -1120,7 +1095,7 @@ fn commit_phase<F: PrimeField, H: Hash>(
         ));
 
         new_oracle = &oracles[i];
-        trees.push(merkelize::<F, H>(&new_oracle));
+        trees.push(merkelize::<Fr, Blake2s>(&new_oracle));
         root = trees[i][trees[i].len() - 1][0].clone();
     }
 
@@ -1128,12 +1103,12 @@ fn commit_phase<F: PrimeField, H: Hash>(
     return (trees, oracles);
 }
 
-fn query_phase<F: PrimeField, H: Hash>(
-    transcript: &mut impl TranscriptWrite<Output<H>, F>,
-    comm: &P3FriCommitment<F, H>,
-    oracles: &Vec<Vec<F>>,
+fn query_phase(
+    transcript: &mut impl TranscriptWrite<Output<Blake2s>, Fr>,
+    comm: &P3FriCommitment<Fr, Blake2s>,
+    oracles: &Vec<Vec<Fr>>,
     num_verifier_queries: usize,
-) -> (Vec<(Vec<(F, F)>, Vec<usize>)>, Vec<usize>) {
+) -> (Vec<(Vec<(Fr, Fr)>, Vec<usize>)>, Vec<usize>) {
     let mut queries = transcript.squeeze_challenges(num_verifier_queries);
 
     let queries_usize: Vec<usize> = queries
@@ -1151,7 +1126,7 @@ fn query_phase<F: PrimeField, H: Hash>(
         queries_usize
             .par_iter()
             .map(|x_index| {
-                return basefold_get_query::<F>(&comm.codeword, &oracles, *x_index);
+                return basefold_get_query::<Fr>(&comm.codeword, &oracles, *x_index);
             })
             .collect(),
         queries_usize,
@@ -1346,168 +1321,213 @@ fn query_codeword<F: PrimeField, H: Hash>(
         get_merkle_path::<H, F>(&codeword_tree, *query, true),
     );
 }
-pub fn p3_open_helper<F: PrimeField, H: Hash>(
-    pp: &P3FriProverParams<F>,
-    poly: &UnivariatePolynomial<F, CoefficientBasis>,
-    comm: &P3FriCommitment<F, H>,
-    point: &F,
-    eval: &F,
-    transcript: &mut impl TranscriptWrite<Output<H>, F>,
+pub fn p3_open_helper(
+    pp: &P3FriProverParams<Fr>,
+    poly: &UnivariatePolynomial<Fr, CoefficientBasis>,
+    comm: &P3FriCommitment<Fr, Blake2s>,
+    point: &Fr,
+    eval: &Fr,
+    transcript: &mut impl TranscriptWrite<Output<Blake2s>, Fr>,
 ) -> (
     Result<(), Error>,
-    (Vec<(Vec<(F, F)>, Vec<usize>)>, Vec<usize>),
+    (Vec<(Vec<(Fr, Fr)>, Vec<usize>)>, Vec<usize>),
 ) {
-    //construct evaluation codeword
-    let lg_n = log2_strict(comm.codeword.len());
-    let mut denominator = Vec::new();
-    let mut numerator = Vec::new();
-    let last_level = &pp.table_w_weights[pp.table_w_weights.len() - 1];
+    let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
+    let pcs = p.lock().unwrap().clone();
+    let prover_data = unsafe { STORAGE.data_by_round[comm.index].clone().unwrap() };
+    let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
+    let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
+    challenger.observe_slice(&commits_by_round);
+    let challenge = challenger.sample_ext_element();
 
-    let mut d_pointer = 0;
-    let sim_domain_point = F::ONE;
-    let now = Instant::now();
-
-    for j in 0..comm.codeword.len() {
-        let mut x: F = last_level[d_pointer].0;
-        if j % 2 != 0 {
-            d_pointer = d_pointer + 1;
-            x = -x;
-        }
-        denominator.push(sim_domain_point - point); //replace sim_domain_point with actual domain point
-        numerator.push(comm.codeword[j] - eval);
+    let rounds = vec![(&prover_data[0], vec![vec![challenge]])];
+    let (opening_by_round, proof) = pcs.open(rounds, &mut challenger);
+    unsafe {
+        STORAGE.opening_by_round[comm.index] = Some(opening_by_round);
+        STORAGE.proof[comm.index] = Some(proof);
     }
 
-    //batch invert denominators
-    let mut scratch_space = vec![F::ZERO; denominator.len()];
-    BatchInverter::invert_with_external_scratch(&mut denominator, &mut scratch_space);
+    if unsafe { STORAGE.recording } {
+        let mut recording_mutex = unsafe { STORAGE.recording_mutex.lock().unwrap() };
+        if !recording_mutex[1] {
+            let mut query_result = (Vec::new(), Vec::new());
 
-    let mut evaluation_codeword = vec![F::ZERO; comm.codeword.len()];
-    //multiply numerators and inverted denominators
-    evaluation_codeword
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(j, c)| {
-            *c = numerator[j] * denominator[j];
-        });
-    let m = Instant::now();
-    let evaluation_tree = merkelize::<F, H>(&evaluation_codeword);
-    //	println!("merkle tree {:?}", m.elapsed());
-    //	println!("extra overhead {:?}", now.elapsed());
+            //construct evaluation codeword
+            let lg_n = log2_strict(comm.codeword.len());
+            let mut denominator = Vec::new();
+            let mut numerator = Vec::new();
+            let last_level = &pp.table_w_weights[pp.table_w_weights.len() - 1];
 
-    let evaluation_commitment = P3FriCommitment {
-        codeword: evaluation_codeword,
-        codeword_tree: evaluation_tree,
-        index: comm.index,
-    };
+            let mut d_pointer = 0;
+            let sim_domain_point = Fr::ONE;
+            let now = Instant::now();
 
-    let cp = Instant::now();
-    let (trees, mut oracles) = commit_phase::<F, H>(
-        &point,
-        &evaluation_commitment,
-        transcript,
-        pp.num_vars,
-        pp.num_rounds,
-        &pp.table_w_weights,
-    );
-    //	println!("commit phase {:?}", cp.elapsed());
-    let (queried_els, queries_usize) = query_phase(
-        transcript,
-        &evaluation_commitment,
-        &oracles,
-        pp.num_verifier_queries,
-    );
-
-    // a proof consists of roots, merkle paths, query paths,  eval, and final oracle
-    transcript.write_field_element(&eval); //write eval
-
-    //write final oracle
-    let mut final_oracle = oracles.pop().unwrap();
-    transcript.write_field_elements(&final_oracle);
-
-    //write query paths
-    queried_els
-        .iter()
-        .map(|q| &q.0)
-        .flatten()
-        .for_each(|query| {
-            transcript.write_field_element(&query.0);
-            transcript.write_field_element(&query.1);
-        });
-
-    //write merkle paths
-    queried_els.iter().for_each(|query| {
-        let indices = &query.1;
-        indices.into_iter().enumerate().for_each(|(i, q)| {
-            if (i == 0) {
-                write_merkle_path::<H, F>(&evaluation_commitment.codeword_tree, *q, transcript);
-            } else {
-                write_merkle_path::<H, F>(&trees[i - 1], *q, transcript);
+            for j in 0..comm.codeword.len() {
+                let mut x: Fr = last_level[d_pointer].0;
+                if j % 2 != 0 {
+                    d_pointer = d_pointer + 1;
+                    x = -x;
+                }
+                denominator.push(sim_domain_point - point); //replace sim_domain_point with actual domain point
+                numerator.push(comm.codeword[j] - eval);
             }
-        })
-    });
 
-    let ov = Instant::now();
-    //query corresponding points in original commitment
-    let mut corresponding_points = Vec::new();
-    let mut corresponding_paths = Vec::new();
-    for query in &queries_usize {
-        let res = query_codeword::<F, H>(query, &comm.codeword, &comm.codeword_tree);
-        corresponding_points.push(res.0);
-        corresponding_paths.push(res.1);
+            //batch invert denominators
+            let mut scratch_space = vec![Fr::ZERO; denominator.len()];
+            BatchInverter::invert_with_external_scratch(&mut denominator, &mut scratch_space);
+
+            let mut evaluation_codeword = vec![Fr::ZERO; comm.codeword.len()];
+            //multiply numerators and inverted denominators
+            evaluation_codeword
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(j, c)| {
+                    *c = numerator[j] * denominator[j];
+                });
+            let m = Instant::now();
+            let evaluation_tree = merkelize::<Fr, Blake2s>(&evaluation_codeword);
+            //	println!("merkle tree {:?}", m.elapsed());
+            //	println!("extra overhead {:?}", now.elapsed());
+
+            let evaluation_commitment = P3FriCommitment {
+                codeword: evaluation_codeword,
+                codeword_tree: evaluation_tree,
+                index: comm.index,
+            };
+
+            let cp = Instant::now();
+            let (trees, mut oracles) = commit_phase(
+                &point,
+                &evaluation_commitment,
+                transcript,
+                pp.num_vars,
+                pp.num_rounds,
+                &pp.table_w_weights,
+            );
+            //	println!("commit phase {:?}", cp.elapsed());
+            let (queried_els, queries_usize) = query_phase(
+                transcript,
+                &evaluation_commitment,
+                &oracles,
+                pp.num_verifier_queries,
+            );
+            query_result.0 = queried_els.clone();
+            query_result.1 = queries_usize.clone();
+
+            // a proof consists of roots, merkle paths, query paths,  eval, and final oracle
+            transcript.write_field_element(eval); //write eval
+
+            //write final oracle
+            let mut final_oracle = oracles.pop().unwrap();
+            transcript.write_field_elements(&final_oracle);
+            //write query paths
+            queried_els
+                .iter()
+                .map(|q| &q.0)
+                .flatten()
+                .for_each(|query| {
+                    transcript.write_field_element(&query.0);
+                    transcript.write_field_element(&query.1);
+                });
+
+            //write merkle paths
+            queried_els.iter().for_each(|query| {
+                let indices = &query.1;
+                indices.into_iter().enumerate().for_each(|(i, q)| {
+                    if (i == 0) {
+                        write_merkle_path(&evaluation_commitment.codeword_tree, *q, transcript);
+                    } else {
+                        write_merkle_path(&trees[i - 1], *q, transcript);
+                    }
+                })
+            });
+
+            let ov = Instant::now();
+            //query corresponding points in original commitment
+            let mut corresponding_points = Vec::new();
+            let mut corresponding_paths = Vec::new();
+            for query in &queries_usize {
+                let res = query_codeword::<Fr, Blake2s>(query, &comm.codeword, &comm.codeword_tree);
+                corresponding_points.push(res.0);
+                corresponding_paths.push(res.1);
+            }
+
+            let mut fr_vec_2 = vec![];
+
+            //write corresponding queries
+            corresponding_points.iter().for_each(|query| {
+                transcript.write_field_element(&query.0);
+                transcript.write_field_element(&query.1);
+                fr_vec_2.push(query.0.clone());
+                fr_vec_2.push(query.1.clone());
+            });
+
+            //write corresponding paths
+            corresponding_paths.iter().flatten().for_each(|(h1, h2)| {
+                transcript.write_commitment(h1);
+                transcript.write_commitment(h2);
+            });
+            //query extra points in commitment and evaluation commitment (as this needs to be checked within unique decoding radius
+            let remaining_queries = pp.udr_queries.checked_sub(pp.num_verifier_queries);
+            let (
+                mut queries_usize,
+                mut eval_queried_els,
+                mut eval_paths,
+                mut comm_queried_els,
+                mut comm_paths,
+            ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            if let Some(a) = remaining_queries {
+                let rand_queries = transcript.squeeze_challenges(a);
+                queries_usize = get_query_indices(&rand_queries, comm.codeword.len());
+                (eval_queried_els, eval_paths) =
+                    query_top_level(transcript, &evaluation_commitment, &queries_usize);
+                (comm_queried_els, comm_paths) = query_top_level(transcript, &comm, &queries_usize);
+            }
+
+            let mut fr_vec_3 = vec![];
+
+            //write remaining queries
+            eval_queried_els.iter().for_each(|query| {
+                transcript.write_field_element(&query.0);
+                transcript.write_field_element(&query.1);
+                fr_vec_3.push(query.0.clone());
+                fr_vec_3.push(query.1.clone());
+            });
+
+            comm_queried_els.iter().for_each(|query| {
+                transcript.write_field_element(&query.0);
+                transcript.write_field_element(&query.1);
+                fr_vec_3.push(query.0.clone());
+                fr_vec_3.push(query.1.clone());
+            });
+
+            //write remaining paths
+            eval_paths.iter().flatten().for_each(|(h1, h2)| {
+                transcript.write_commitment(h1);
+                transcript.write_commitment(h2);
+            });
+
+            comm_paths.iter().flatten().for_each(|(h1, h2)| {
+                transcript.write_commitment(h1);
+                transcript.write_commitment(h2);
+            });
+
+            let mut original_query_result = unsafe { STORAGE.query_result.clone() };
+            original_query_result[comm.index] = Some(query_result.clone());
+            unsafe {
+                STORAGE.query_result = original_query_result;
+            }
+
+            *recording_mutex = [true, true, false];
+
+            return (Ok(()), query_result);
+        }
     }
 
-    //write corresponding queries
-    corresponding_points.iter().for_each(|query| {
-        transcript.write_field_element(&query.0);
-        transcript.write_field_element(&query.1);
-    });
-
-    //write corresponding paths
-    corresponding_paths.iter().flatten().for_each(|(h1, h2)| {
-        transcript.write_commitment(h1);
-        transcript.write_commitment(h2);
-    });
-    //query extra points in commitment and evaluation commitment (as this needs to be checked within unique decoding radius
-    let remaining_queries = pp.udr_queries.checked_sub(pp.num_verifier_queries);
-    let (
-        mut queries_usize,
-        mut eval_queried_els,
-        mut eval_paths,
-        mut comm_queried_els,
-        mut comm_paths,
-    ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    if let Some(a) = remaining_queries {
-        let rand_queries = transcript.squeeze_challenges(a);
-        queries_usize = get_query_indices(&rand_queries, comm.codeword.len());
-        (eval_queried_els, eval_paths) =
-            query_top_level(transcript, &evaluation_commitment, &queries_usize);
-        (comm_queried_els, comm_paths) = query_top_level(transcript, &comm, &queries_usize);
-    }
-
-    //write remaining queries
-    eval_queried_els.iter().for_each(|query| {
-        transcript.write_field_element(&query.0);
-        transcript.write_field_element(&query.1);
-    });
-
-    comm_queried_els.iter().for_each(|query| {
-        transcript.write_field_element(&query.0);
-        transcript.write_field_element(&query.1);
-    });
-
-    //write remaining paths
-    eval_paths.iter().flatten().for_each(|(h1, h2)| {
-        transcript.write_commitment(h1);
-        transcript.write_commitment(h2);
-    });
-
-    comm_paths.iter().flatten().for_each(|(h1, h2)| {
-        transcript.write_commitment(h1);
-        transcript.write_commitment(h2);
-    });
+    let query_result = unsafe { STORAGE.query_result.clone() };
 
     //	println!("additional overhead {:?}", ov.elapsed());
-    (Ok(()), (queried_els, queries_usize))
+    (Ok(()), query_result[comm.index].clone().unwrap())
 }
 
 pub fn p3_verify_helper<F: PrimeField, H: Hash>(
@@ -1517,192 +1537,241 @@ pub fn p3_verify_helper<F: PrimeField, H: Hash>(
     eval: &F,
     transcript: &mut impl TranscriptRead<Output<H>, F>,
 ) -> (Result<(), Error>, Vec<usize>) {
-    //construct evaluation codeword
-    let field_size = 256;
-    let n = (1 << (vp.num_vars + vp.log_rate));
-    //read first $(num_var - 1) commitments
+    if unsafe { STORAGE.recording } {
+        let mut recording_mutex = unsafe { STORAGE.recording_mutex.lock().unwrap() };
+        if recording_mutex[2] {
+            let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
+            let domains_and_polys_by_round = unsafe {
+                STORAGE.domains_and_polys_by_round[comm.index]
+                    .clone()
+                    .unwrap()
+            };
+            let opening_by_round = unsafe { STORAGE.opening_by_round[comm.index].clone().unwrap() };
+            let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
+            let pcs = p.lock().unwrap().clone();
+            let proof = unsafe { STORAGE.proof[comm.index].clone().unwrap() };
+            let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
+            challenger.observe_slice(&commits_by_round);
+            let challenge = challenger.sample_ext_element();
 
-    let mut fold_challenges: Vec<F> = Vec::with_capacity(vp.num_vars);
-    let mut size = 0;
-    let mut roots = Vec::new();
-    for i in 0..vp.num_rounds {
-        roots.push(transcript.read_commitment().unwrap());
-        fold_challenges.push(transcript.squeeze_challenge());
-    }
-    size = size + 256 * vp.num_rounds;
-    //read last commitment
-    transcript.read_commitment().unwrap();
+            let commits_and_claims_by_round = izip!(
+                commits_by_round,
+                domains_and_polys_by_round,
+                opening_by_round
+            )
+            .map(|(commit, domains_and_polys, openings)| {
+                let claims = domains_and_polys
+                    .iter()
+                    .zip(openings)
+                    .map(|((domain, _), mat_openings)| {
+                        (*domain, vec![(challenge, mat_openings[0].clone())])
+                    })
+                    .collect_vec();
+                (commit, claims)
+            })
+            .collect_vec();
 
-    let mut query_challenges = transcript.squeeze_challenges(vp.num_verifier_queries);
-    //read eval
+            pcs.verify(commits_and_claims_by_round, &proof, &mut challenger)
+                .unwrap();
 
-    let eval = &transcript.read_field_element().unwrap(); //do not need eval in proof
+            //construct evaluation codeword
+            let field_size = 256;
+            let n = (1 << (vp.num_vars + vp.log_rate));
+            //read first $(num_var - 1) commitments
 
-    //read final oracle
-    let mut final_oracle = transcript
-        .read_field_elements(1 << (vp.num_vars - vp.num_rounds + vp.log_rate))
-        .unwrap();
-
-    size = size + field_size * final_oracle.len();
-    //read query paths
-    let num_queries = vp.num_verifier_queries * 2 * (vp.num_rounds + 1);
-
-    let all_qs = transcript.read_field_elements(num_queries).unwrap();
-
-    size = size + (num_queries - 2) * field_size;
-
-    let i_qs = all_qs.chunks((vp.num_rounds + 1) * 2).collect_vec();
-
-    assert_eq!(i_qs.len(), vp.num_verifier_queries);
-
-    let mut queries = i_qs.iter().map(|q| q.chunks(2).collect_vec()).collect_vec();
-
-    assert_eq!(queries.len(), vp.num_verifier_queries);
-
-    //read merkle paths
-
-    let mut query_merkle_paths: Vec<Vec<Vec<Vec<Output<H>>>>> =
-        Vec::with_capacity(vp.num_verifier_queries);
-    let query_merkle_paths: Vec<Vec<Vec<Vec<Output<H>>>>> = (0..vp.num_verifier_queries)
-        .into_iter()
-        .map(|i| {
-            let mut merkle_paths: Vec<Vec<Vec<Output<H>>>> = Vec::with_capacity(vp.num_rounds + 1);
-            for round in 0..(vp.num_rounds + 1) {
-                let mut merkle_path: Vec<Output<H>> = transcript
-                    .read_commitments(2 * (vp.num_vars - round + vp.log_rate - 1))
-                    .unwrap();
-                size = size + 256 * (2 * (vp.num_vars - round + vp.log_rate - 1));
-
-                let chunked_path: Vec<Vec<Output<H>>> =
-                    merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
-
-                merkle_paths.push(chunked_path);
+            let mut fold_challenges: Vec<F> = Vec::with_capacity(vp.num_vars);
+            let mut size = 0;
+            let mut roots = Vec::new();
+            for i in 0..vp.num_rounds {
+                roots.push(transcript.read_commitment().unwrap());
+                fold_challenges.push(transcript.squeeze_challenge());
             }
-            merkle_paths
-        })
-        .collect();
+            size = size + 256 * vp.num_rounds;
+            //read last commitment
+            transcript.read_commitment().unwrap();
 
-    let mut corresponding_queries = Vec::with_capacity(vp.num_verifier_queries);
-    for i in 0..vp.num_verifier_queries {
-        corresponding_queries.push(transcript.read_field_elements(2).unwrap());
-        size = size + 2 * field_size;
-    }
+            let mut query_challenges = transcript.squeeze_challenges(vp.num_verifier_queries);
+            //read eval
 
-    //read corresponding queries and paths
-    let mut corresponding_paths = Vec::with_capacity(vp.num_verifier_queries);
-    for i in 0..vp.num_verifier_queries {
-        let merkle_path = transcript
-            .read_commitments(2 * (vp.num_vars + vp.log_rate))
-            .unwrap();
-        size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
-        let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
-        corresponding_paths.push(chunked_path);
-    }
-    let now = Instant::now();
-    let queries_usize = verifier_query_phase::<F, H>(
-        &query_challenges,
-        &query_merkle_paths,
-        &fold_challenges,
-        &queries,
-        vp.num_rounds,
-        vp.num_vars,
-        vp.log_rate,
-        &roots,
-        &eval,
-    );
-    //        println!("now {:?}", now.elapsed().as_millis());
-    //verify corresponding paths
-    for i in 0..corresponding_paths.len() {
-        authenticate_merkle_path::<H, F>(
-            &corresponding_paths[i],
-            (corresponding_queries[i][0], corresponding_queries[i][1]),
-            queries_usize[i],
-        );
-    }
-    let now = Instant::now();
-    //verify corresponding queries are related correctly
+            let eval = &transcript.read_field_element().unwrap(); //do not need eval in proof
 
-    for (i, query) in queries.iter().enumerate() {
-        let sim_query_0 = (corresponding_queries[i][0] - eval) * (F::ONE - point).invert().unwrap();
-        let sim_query_1 = (corresponding_queries[i][1] - eval) * (F::ONE - point).invert().unwrap();
-        assert_eq!(sim_query_0, query[0][0]);
-        assert_eq!(sim_query_1, query[0][1]);
-    }
-    //	println!("verify corresponding {:?}", now.elapsed());
-
-    //        println!("Fri effective proof size {:?}", size);
-
-    //read remaining paths for consistency check with evaluation polynomial
-    let remaining_queries = vp.udr_queries.checked_sub(vp.num_verifier_queries);
-    let (
-        mut queries_usize,
-        mut eval_queried_els,
-        mut eval_paths,
-        mut comm_queried_els,
-        mut comm_paths,
-    ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-
-    if let Some(a) = remaining_queries {
-        let rand_queries = transcript.squeeze_challenges(a);
-        queries_usize = get_query_indices(&rand_queries, 1 << (vp.num_vars + vp.log_rate));
-        for i in 0..a {
-            eval_queried_els.push(transcript.read_field_elements(2).unwrap());
-            size = size + 2 * field_size;
-        }
-        for i in 0..a {
-            comm_queried_els.push(transcript.read_field_elements(2).unwrap());
-            size = size + 2 * field_size;
-        }
-        for i in 0..a {
-            let merkle_path = transcript
-                .read_commitments(2 * (vp.num_vars + vp.log_rate))
+            //read final oracle
+            let mut final_oracle = transcript
+                .read_field_elements(1 << (vp.num_vars - vp.num_rounds + vp.log_rate))
                 .unwrap();
-            size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
-            let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
-            eval_paths.push(chunked_path);
+
+            size = size + field_size * final_oracle.len();
+            //read query paths
+            let num_queries = vp.num_verifier_queries * 2 * (vp.num_rounds + 1);
+
+            let all_qs = transcript.read_field_elements(num_queries).unwrap();
+
+            size = size + (num_queries - 2) * field_size;
+
+            let i_qs = all_qs.chunks((vp.num_rounds + 1) * 2).collect_vec();
+
+            assert_eq!(i_qs.len(), vp.num_verifier_queries);
+
+            let mut queries = i_qs.iter().map(|q| q.chunks(2).collect_vec()).collect_vec();
+
+            assert_eq!(queries.len(), vp.num_verifier_queries);
+
+            //read merkle paths
+
+            let mut query_merkle_paths: Vec<Vec<Vec<Vec<Output<H>>>>> =
+                Vec::with_capacity(vp.num_verifier_queries);
+            let query_merkle_paths: Vec<Vec<Vec<Vec<Output<H>>>>> = (0..vp.num_verifier_queries)
+                .into_iter()
+                .map(|i| {
+                    let mut merkle_paths: Vec<Vec<Vec<Output<H>>>> =
+                        Vec::with_capacity(vp.num_rounds + 1);
+                    for round in 0..(vp.num_rounds + 1) {
+                        let mut merkle_path: Vec<Output<H>> = transcript
+                            .read_commitments(2 * (vp.num_vars - round + vp.log_rate - 1))
+                            .unwrap();
+                        size = size + 256 * (2 * (vp.num_vars - round + vp.log_rate - 1));
+
+                        let chunked_path: Vec<Vec<Output<H>>> =
+                            merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+
+                        merkle_paths.push(chunked_path);
+                    }
+                    merkle_paths
+                })
+                .collect();
+
+            let mut corresponding_queries = Vec::with_capacity(vp.num_verifier_queries);
+            for i in 0..vp.num_verifier_queries {
+                corresponding_queries.push(transcript.read_field_elements(2).unwrap());
+                size = size + 2 * field_size;
+            }
+
+            //read corresponding queries and paths
+            let mut corresponding_paths = Vec::with_capacity(vp.num_verifier_queries);
+            for i in 0..vp.num_verifier_queries {
+                let merkle_path = transcript
+                    .read_commitments(2 * (vp.num_vars + vp.log_rate))
+                    .unwrap();
+                size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
+                let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+                corresponding_paths.push(chunked_path);
+            }
+            let now = Instant::now();
+            let queries_usize = verifier_query_phase::<F, H>(
+                &query_challenges,
+                &query_merkle_paths,
+                &fold_challenges,
+                &queries,
+                vp.num_rounds,
+                vp.num_vars,
+                vp.log_rate,
+                &roots,
+                &eval,
+            );
+            //        println!("now {:?}", now.elapsed().as_millis());
+            //verify corresponding paths
+            for i in 0..corresponding_paths.len() {
+                authenticate_merkle_path::<H, F>(
+                    &corresponding_paths[i],
+                    (corresponding_queries[i][0], corresponding_queries[i][1]),
+                    queries_usize[i],
+                );
+            }
+            let now = Instant::now();
+            //verify corresponding queries are related correctly
+
+            for (i, query) in queries.iter().enumerate() {
+                let sim_query_0 =
+                    (corresponding_queries[i][0] - eval) * (F::ONE - point).invert().unwrap();
+                let sim_query_1 =
+                    (corresponding_queries[i][1] - eval) * (F::ONE - point).invert().unwrap();
+                assert_eq!(sim_query_0, query[0][0]);
+                assert_eq!(sim_query_1, query[0][1]);
+            }
+            //	println!("verify corresponding {:?}", now.elapsed());
+
+            //        println!("Fri effective proof size {:?}", size);
+
+            //read remaining paths for consistency check with evaluation polynomial
+            let remaining_queries = vp.udr_queries.checked_sub(vp.num_verifier_queries);
+            let (
+                mut queries_usize,
+                mut eval_queried_els,
+                mut eval_paths,
+                mut comm_queried_els,
+                mut comm_paths,
+            ) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+
+            if let Some(a) = remaining_queries {
+                let rand_queries = transcript.squeeze_challenges(a);
+                queries_usize = get_query_indices(&rand_queries, 1 << (vp.num_vars + vp.log_rate));
+                for i in 0..a {
+                    eval_queried_els.push(transcript.read_field_elements(2).unwrap());
+                    size = size + 2 * field_size;
+                }
+                for i in 0..a {
+                    comm_queried_els.push(transcript.read_field_elements(2).unwrap());
+                    size = size + 2 * field_size;
+                }
+                for i in 0..a {
+                    let merkle_path = transcript
+                        .read_commitments(2 * (vp.num_vars + vp.log_rate))
+                        .unwrap();
+                    size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
+                    let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+                    eval_paths.push(chunked_path);
+                }
+                for i in 0..a {
+                    let merkle_path = transcript
+                        .read_commitments(2 * (vp.num_vars + vp.log_rate))
+                        .unwrap();
+                    size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
+                    let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+                    comm_paths.push(chunked_path);
+                }
+            }
+            let now = Instant::now();
+            for i in 0..eval_paths.len() {
+                authenticate_merkle_path::<H, F>(
+                    &eval_paths[i],
+                    (eval_queried_els[i][0], eval_queried_els[i][1]),
+                    queries_usize[i],
+                );
+
+                authenticate_merkle_path::<H, F>(
+                    &comm_paths[i],
+                    (comm_queried_els[i][0], comm_queried_els[i][1]),
+                    queries_usize[i],
+                );
+            }
+            //        println!("authenticate time {:?}", now.elapsed());
+            //verify corresponding queries are related correctly
+            let now = Instant::now();
+            for i in 0..eval_queried_els.len() {
+                let sim_query_0 =
+                    (comm_queried_els[i][0] - eval) * (F::ONE - point).invert().unwrap();
+                let sim_query_1 =
+                    (comm_queried_els[i][1] - eval) * (F::ONE - point).invert().unwrap();
+                assert_eq!(sim_query_0, eval_queried_els[i][0]);
+                assert_eq!(sim_query_1, eval_queried_els[i][1]);
+            }
+            //	println!("corresponding queries {:?}", now.elapsed().as_millis());
+
+            //        println!("Fri effective proof size {:?}", size);
+
+            virtual_open(
+                vp.num_vars,
+                vp.num_rounds,
+                &mut final_oracle,
+                &mut fold_challenges,
+                &vp.table_w_weights,
+            );
+
+            *recording_mutex = [true, true, true];
+
+            return (Ok(()), queries_usize);
         }
-        for i in 0..a {
-            let merkle_path = transcript
-                .read_commitments(2 * (vp.num_vars + vp.log_rate))
-                .unwrap();
-            size = size + 2 * (vp.num_vars + vp.log_rate) * 256;
-            let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
-            comm_paths.push(chunked_path);
-        }
     }
-    let now = Instant::now();
-    for i in 0..eval_paths.len() {
-        authenticate_merkle_path::<H, F>(
-            &eval_paths[i],
-            (eval_queried_els[i][0], eval_queried_els[i][1]),
-            queries_usize[i],
-        );
-
-        authenticate_merkle_path::<H, F>(
-            &comm_paths[i],
-            (comm_queried_els[i][0], comm_queried_els[i][1]),
-            queries_usize[i],
-        );
-    }
-    //        println!("authenticate time {:?}", now.elapsed());
-    //verify corresponding queries are related correctly
-    let now = Instant::now();
-    for i in 0..eval_queried_els.len() {
-        let sim_query_0 = (comm_queried_els[i][0] - eval) * (F::ONE - point).invert().unwrap();
-        let sim_query_1 = (comm_queried_els[i][1] - eval) * (F::ONE - point).invert().unwrap();
-        assert_eq!(sim_query_0, eval_queried_els[i][0]);
-        assert_eq!(sim_query_1, eval_queried_els[i][1]);
-    }
-    //	println!("corresponding queries {:?}", now.elapsed().as_millis());
-
-    //        println!("Fri effective proof size {:?}", size);
-
-    virtual_open(
-        vp.num_vars,
-        vp.num_rounds,
-        &mut final_oracle,
-        &mut fold_challenges,
-        &vp.table_w_weights,
-    );
-    (Ok(()), queries_usize)
+    let queries_usize = unsafe { STORAGE.query_result.clone() };
+    return (Ok(()), queries_usize[comm.index].clone().unwrap().1);
 }

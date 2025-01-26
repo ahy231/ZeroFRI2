@@ -32,10 +32,11 @@ use plonkish_backend::{
         univariate::P3Fri,
     },
     util::{
-        end_timer,     // Possibly a specialized field / curves.
-        hash::Blake2s, // Additional hashing utilities.
-        start_timer,   // Timer utilities for measuring performance.
-        test::std_rng, // A standard RNG for testing.
+        end_timer,
+        hash::Blake2s,
+        start_timer,
+        storage::STORAGE,
+        test::std_rng,
         transcript::{Blake2sTranscript, InMemoryTranscript}, // Transcript types for non-interactive proofs.
     },
 };
@@ -68,10 +69,55 @@ fn main() {
 
 /// Benchmarks HyperPlonk for a given circuit size k and circuit type C.
 fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
-    // 1) Type definitions for the FRI-based PCS.
+    // Mock benchmark
+    unsafe {
+        STORAGE.recording = true;
+    }
+
     type ZeromorphFriPcs = ZeromorphP3Fri<P3Fri<Fr, Blake2s>>;
-    // 2) Our HyperPlonk backend uses ZeromorphFri as the polynomial commitment scheme.
     type HyperPlonk = backend::hyperplonk::HyperPlonk<ZeromorphFriPcs>;
+
+    let circuit = C::rand(k, std_rng());
+    let circuit = Halo2Circuit::new::<HyperPlonk>(k, circuit);
+
+    let circuit_info = circuit.circuit_info().unwrap();
+    let instances = circuit.instances();
+
+    // let timer = start_timer(|| format!("hyperplonk_setup-{k}"));
+    let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
+    // end_timer(timer);
+
+    // let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
+    let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
+    // end_timer(timer);
+
+    let proof = sample(System::HyperPlonk, k, true, || {
+        // let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
+        let mut transcript = Blake2sTranscript::default();
+        HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
+        let proof = transcript.into_proof();
+        proof
+    });
+
+    // let size = proof.len() * 8;
+    // writeln!(&mut (System::HyperPlonk).size_output(), "{}", size).unwrap();
+
+    let accept = verifier_sample(System::HyperPlonk, k, || {
+        let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
+        HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
+    });
+    // If verification fails, panic in debug mode.
+    assert!(accept);
+
+    // Real benchmark
+    unsafe {
+        STORAGE.recording = false;
+    }
+
+    // 1) Type definitions for the FRI-based PCS.
+    // type ZeromorphFriPcs = ZeromorphP3Fri<P3Fri<Fr, Blake2s>>;
+    // 2) Our HyperPlonk backend uses ZeromorphFri as the polynomial commitment scheme.
+    // type HyperPlonk = backend::hyperplonk::HyperPlonk<ZeromorphFriPcs>;
 
     // 3) Generate a random circuit of size k.
     let circuit = C::rand(k, std_rng());
@@ -94,7 +140,7 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     end_timer(timer);
 
     // 8) Proving phase, measured using the `sample` helper function.
-    let proof = sample(System::HyperPlonk, k, || {
+    let proof = sample(System::HyperPlonk, k, false, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         // 9) A transcript where proof data is recorded; used for non-interactive proofs.
         let mut transcript = Blake2sTranscript::default();
@@ -153,7 +199,7 @@ fn bench_halo2<C: CircuitExt<Fr>>(k: usize) {
         |c, d, e| verify_proof::<_, VerifierGWC<_>, _, _, _, false>(&param, pk.get_vk(), c, d, e);
 
     // 7) Proving step with repeated sampling for average time.
-    let proof = sample(System::HyperPlonk, k, || {
+    let proof = sample(System::HyperPlonk, k, false, || {
         let _timer = start_timer(|| format!("halo2_prove-{k}"));
         let transcript = Blake2bWrite::init(Vec::new());
         create_proof(circuits, &instances, std_rng(), transcript)
@@ -357,7 +403,7 @@ fn create_output(systems: &[System]) {
 }
 
 /// Helper function for measuring the average prove time across multiple samples.
-fn sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
+fn sample<T>(system: System, k: usize, mock: bool, prove: impl Fn() -> T) -> T {
     let mut proof = None;
     // Decide how many times to repeat based on k. Smaller k => more repeats.
     let sample_size = sample_size(k);
@@ -371,8 +417,10 @@ fn sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
 
     let avg = sum / sample_size as u32;
     // Write the average (in milliseconds) to the system's output file.
-    writeln!(&mut system.output(), "{}", avg.as_millis()).unwrap();
-    println!("zeromorph: {k}, {}", avg.as_millis());
+    if !mock {
+        writeln!(&mut system.output(), "{}", avg.as_millis()).unwrap();
+        println!("zeromorph: {k}, {}", avg.as_millis());
+    }
     proof.unwrap()
 }
 

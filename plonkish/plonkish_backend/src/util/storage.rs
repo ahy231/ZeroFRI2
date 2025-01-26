@@ -5,7 +5,12 @@ use std::{
 };
 
 use ff::PrimeField;
+use generic_array::{
+    typenum::{UInt, UTerm, B0, B1},
+    GenericArray,
+};
 use halo2_curves::bn256::Fr;
+use halo2_proofs::transcript::TranscriptWrite;
 use p3_baby_bear::{BabyBear, BabyBearParameters, Poseidon2BabyBear};
 use p3_bn254_fr::{Bn254Fr, FakeExtension};
 use p3_challenger::{
@@ -24,6 +29,13 @@ use p3_symmetric::{
     CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher64, TruncatedPermutation,
 };
 use serde::{de::DeserializeOwned, Serialize};
+
+use crate::pcs::univariate::{FriCommitment, P3FriCommitment};
+
+use super::{
+    hash::Blake2s,
+    transcript::{Blake2sTranscript, Transcript},
+};
 
 pub type Val = Bn254Fr;
 pub type Challenge = FakeExtension;
@@ -46,6 +58,16 @@ pub type MyPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
 pub const MAX_POLYS: usize = 10000;
 
 pub struct Storage {
+    // mock data
+    pub recording: bool,
+    pub recording_mutex: Mutex<[bool; 3]>,
+    pub recording_comm: Option<Vec<Fr>>,
+
+    pub commit_result: Option<P3FriCommitment<Fr, Blake2s>>,
+    pub query_result: [Option<(Vec<(Vec<(Fr, Fr)>, Vec<usize>)>, Vec<usize>)>; MAX_POLYS],
+    pub open_transcript: Option<Blake2sTranscript<Blake2s>>,
+
+    // bench data
     pub counter: Mutex<u128>,
     pub pcs: Option<Arc<Mutex<MyPcs>>>,
     pub domains_and_polys_by_round: [Option<
@@ -95,6 +117,13 @@ pub struct Storage {
 }
 
 pub static mut STORAGE: Storage = Storage {
+    recording: false,
+    recording_mutex: Mutex::new([false; 3]),
+    recording_comm: None,
+
+    commit_result: None,
+    query_result: [const { None }; MAX_POLYS],
+    open_transcript: None,
     counter: Mutex::new(0),
     pcs: None,
     domains_and_polys_by_round: [const { None }; MAX_POLYS],
