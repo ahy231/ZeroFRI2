@@ -85,12 +85,12 @@ timer = [
 # [[bench]]
 # name = "hyrax_proof_system"
 # harness = false
-[[bench]]
-name = "plonky3_pcs_bench"
-harness = false
-[[bench]]
-name = "p3_proof_system"
-harness = false
-
-[[bin]]
-name = "plotter"
+# [[bench]]
+# name = "plonky3_pcs_bench"
+# harness = false
+# [[bench]]
+# name = "p3_proof_system"
+# harness = false
+# 
+# [[bin]]
+# name = "plotter"

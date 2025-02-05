@@ -8,7 +8,7 @@ Below is a step-by-step comparison of the different proving systems (Basefold, B
 
 To run benchmark for the same, go to `plonkish` folder and run `cargo run -p bench-cli`, choose the proof system, and the bench data is created for the same.
 
-Because each system’s performance depends heavily on circuit/instance size (the “Polynomial Size” column, measured in \(\log_2\)), it is often most illuminating to compare them at the same polynomial size.
+Because each system’s performance depends heavily on circuit/instance size (the “Polynomial Size” column, measured in $\log_2$, it is often most illuminating to compare them at the same polynomial size.
 
 ---
 
@@ -29,7 +29,7 @@ Because each system’s performance depends heavily on circuit/instance size (th
 2. **Proof Size**  
    - **Gemini** has by far the smallest proof sizes (in the kilobits range).  
    - **Hyrax** is typically in the tens to hundreds of kilobits range, which is larger than Gemini but **much** smaller than Basefold/Brakedown, and even smaller than Zeromorph-FRI at many sizes.  
-     - For instance, at size 20: Hyrax \(\sim\) 72 KB, whereas Zeromorph-FRI \(\sim\) 2.88 MB, Basefold \(\sim\) 14 MB, Brakedown (spec 3) \(\sim\) 133 MB.  
+     - For instance, at size 20: Hyrax $\sim$ 72 KB, whereas Zeromorph-FRI $\sim$ 2.88 MB, Basefold $\sim$ 14 MB, Brakedown (spec 3) $\sim$ 133 MB.  
    - **Zeromorph-FRI** is in the low megabits range, so often bigger than Hyrax at large sizes.  
    - **Basefold** is typically in the tens of megabits range.  
    - **Brakedown** (all specs) tends to produce the largest proofs—often hundreds of megabits or more.
@@ -121,7 +121,7 @@ Below are a couple of detailed snapshots at small (log size=10) and larger (log 
   - **Hyrax** is also quite small in proof size (though larger than Gemini) and has moderate verification times. If proof size is crucial and you want something smaller than Zeromorph-FRI (and *much* smaller than Basefold/Brakedown), Hyrax is an option—especially if you can handle its longer prover time.
 
 - **If you need extremely fast proof generation (e.g., you re-generate proofs frequently on large circuits)**:  
-  - **Brakedown** under **spec 3** can outperform others at high polynomial sizes (e.g., \(\log_2 n = 20\)).  
+  - **Brakedown** under **spec 3** can outperform others at high polynomial sizes (e.g., $\log_2 n = 20$).  
   - For smaller polynomial sizes, **Basefold** is often the fastest.  
   - **Hyrax** doesn’t excel in prover speed at large scale—its times can grow significantly (e.g., ~52,824 ms at size 20).
 
