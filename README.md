@@ -6,6 +6,8 @@ Below is a step-by-step comparison of the different proving systems (Basefold, B
 2. **Proof Size**  
 3. **Verification Time**  
 
+To run benchmark for the same, go to `plonkish` folder and run `cargo run -p bench-cli`, choose the proof system, and the bench data is created for the same.
+
 Because each system’s performance depends heavily on circuit/instance size (the “Polynomial Size” column, measured in \(\log_2\)), it is often most illuminating to compare them at the same polynomial size.
 
 ---
