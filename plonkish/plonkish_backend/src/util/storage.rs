@@ -136,6 +136,29 @@ pub static mut STORAGE: Storage = Storage {
     challenger: [const { None }; MAX_POLYS],
 };
 
+impl Default for Storage {
+    fn default() -> Self {
+        Storage {
+            recording: false,
+            recording_mutex: Mutex::new([false; 3]),
+            recording_comm: None,
+
+            proof_size: Mutex::new(0),
+            commit_result: None,
+            query_result: [const { None }; MAX_POLYS],
+            open_transcript: None,
+            counter: Mutex::new(0),
+            pcs: None,
+            domains_and_polys_by_round: [const { None }; MAX_POLYS],
+            commits_by_round: [const { None }; MAX_POLYS],
+            data_by_round: [const { None }; MAX_POLYS],
+            opening_by_round: [const { None }; MAX_POLYS],
+            proof: [const { None }; MAX_POLYS],
+            challenger: [const { None }; MAX_POLYS],
+        }
+    }
+}
+
 pub fn get_pcs(log_blowup: usize) -> MyPcs {
     let log_blowup = 4;
 

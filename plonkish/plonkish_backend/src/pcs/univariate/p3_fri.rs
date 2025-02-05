@@ -1516,11 +1516,6 @@ pub fn p3_open_helper(
     let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
     challenger.observe_slice(&commits_by_round);
 
-    if unsafe { STORAGE.recording } {
-        let mut proof_size = unsafe { STORAGE.proof_size.lock().unwrap() };
-        *proof_size += 32 * 32 * commits_by_round.len(); // 32 words, 32 bytes each
-    }
-
     let challenge = challenger.sample_ext_element();
 
     let rounds = vec![(&prover_data[0], vec![vec![challenge]])];
@@ -1528,7 +1523,7 @@ pub fn p3_open_helper(
 
     if unsafe { STORAGE.recording } {
         let mut proof_size = unsafe { STORAGE.proof_size.lock().unwrap() };
-        *proof_size += std::mem::size_of_val(&proof);
+        *proof_size += challenger.size() * 32;
     }
 
     unsafe {

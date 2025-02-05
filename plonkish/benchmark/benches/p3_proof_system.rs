@@ -26,7 +26,7 @@ use plonkish_backend::{
         end_timer,
         hash::Blake2s,
         start_timer,
-        storage::STORAGE,
+        storage::{Storage, STORAGE},
         test::std_rng,
         transcript::{Blake2sTranscript, InMemoryTranscript}, // Transcript types for non-interactive proofs.
     },
@@ -63,6 +63,7 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     // ********** Mock benchmark **********
 
     unsafe {
+        STORAGE = Storage::default();
         STORAGE.recording = true;
     }
 
@@ -92,9 +93,9 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     });
 
     let size = unsafe { STORAGE.proof_size.lock().unwrap() };
-    writeln!(&mut (System::HyperPlonk).size_output(), "{}", size).unwrap();
+    writeln!(&mut (System::HyperPlonk).size_output(), "{}", *size * 8).unwrap();
 
-    let accept = verifier_sample(System::HyperPlonk, k, || {
+    let accept = verifier_sample(System::HyperPlonk, 1, true, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
     });
@@ -151,7 +152,7 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
 
     // 12) Verification, measured via `verifier_sample`.
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, k, || {
+    let accept = verifier_sample(System::HyperPlonk, k, false, || {
         // 13) Recreate a transcript from the proof bytes for verification.
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         // 14) Attempt to verify the proof with the verifier params, instance data, etc.
@@ -418,7 +419,7 @@ fn sample<T>(system: System, k: usize, mock: bool, prove: impl Fn() -> T) -> T {
 }
 
 /// Helper function for measuring the average verify time across multiple samples.
-fn verifier_sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
+fn verifier_sample<T>(system: System, k: usize, mock: bool, prove: impl Fn() -> T) -> T {
     let mut proof = None;
     let sample_size = sample_size(k);
     let sum = iter::repeat_with(|| {
@@ -430,8 +431,10 @@ fn verifier_sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
     .sum::<Duration>();
 
     let avg = sum / sample_size as u32;
-    // Write the average verification time to the system's verifier output file.
-    writeln!(&mut system.verifier_output(), "{}", avg.as_millis()).unwrap();
+    if !mock {
+        // Write the average verification time to the system's verifier output file.
+        writeln!(&mut system.verifier_output(), "{}", avg.as_millis()).unwrap();
+    }
     proof.unwrap()
 }
 
