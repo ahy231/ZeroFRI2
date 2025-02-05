@@ -18,13 +18,14 @@ use crate::{
         end_timer,
         expression::Expression,
         start_timer,
+        storage::STORAGE,
         transcript::{TranscriptRead, TranscriptWrite},
         Deserialize, DeserializeOwned, Itertools, Serialize,
     },
     Error,
 };
-use std::time::Instant;
 use rand::RngCore;
+use std::time::Instant;
 use std::{fmt::Debug, hash::Hash, iter, marker::PhantomData};
 
 pub mod preprocessor;
@@ -107,7 +108,6 @@ where
         let batch_size = batch_size(circuit_info);
         let (pcs_pp, pcs_vp) = Pcs::trim(param, poly_size, batch_size)?;
 
-
         // Compute preprocesses comms
         let preprocess_polys = circuit_info
             .preprocess_polys
@@ -116,9 +116,7 @@ where
             .map(MultilinearPolynomial::new)
             .collect_vec();
 
-
         let preprocess_comms = Pcs::batch_commit(&pcs_pp, &preprocess_polys)?;
-
 
         // Compute permutation polys and comms
         let permutation_polys = permutation_polys(
@@ -173,16 +171,24 @@ where
         transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
         _: impl RngCore,
     ) -> Result<(), Error> {
+        let mut size_counter = 0;
+
         let instance_polys = {
             let instances = circuit.instances();
             for (num_instances, instances) in pp.num_instances.iter().zip_eq(instances) {
                 assert_eq!(instances.len(), *num_instances);
                 for instance in instances.iter() {
                     transcript.common_field_element(instance)?;
+                    size_counter += 32;
                 }
             }
             instance_polys(pp.num_vars, instances)
         };
+
+        if unsafe { STORAGE.recording } {
+            let mut proof_size = unsafe { STORAGE.proof_size.lock().unwrap() };
+            *proof_size += size_counter;
+        }
 
         // Round 0..n
 
@@ -269,7 +275,7 @@ where
             .chain(lookup_h_permutation_z_polys)
             .collect_vec();
         challenges.extend([beta, gamma, alpha]);
-	let sumcheck_time = Instant::now();
+        let sumcheck_time = Instant::now();
         let (points, evals) = prove_zero_check(
             pp.num_instances.len(),
             &pp.expression,
@@ -291,7 +297,7 @@ where
             .chain(&lookup_h_permutation_z_comms)
             .collect_vec();
         let timer = start_timer(|| format!("pcs_batch_open-{}", evals.len()));
-	let now = Instant::now();
+        let now = Instant::now();
         Pcs::batch_open(&pp.pcs, polys, comms, &points, &evals, transcript)?;
 
         end_timer(timer);
@@ -367,9 +373,9 @@ where
             .collect_vec();
         Pcs::batch_verify(&vp.pcs, comms, &points, &evals, transcript)?;
         let mut waste = 0;
-	while(transcript.read_commitment().is_ok()){
-		waste = waste + 1;
-	}
+        while (transcript.read_commitment().is_ok()) {
+            waste = waste + 1;
+        }
 
         Ok(())
     }
@@ -393,8 +399,8 @@ mod test {
         },
         pcs::{
             multilinear::{
-                Gemini, MultilinearBrakedown, MultilinearHyrax, MultilinearIpa, MultilinearKzg,
-                Zeromorph, Basefold
+                Basefold, Gemini, MultilinearBrakedown, MultilinearHyrax, MultilinearIpa,
+                MultilinearKzg, Zeromorph,
             },
             univariate::UnivariateKzg,
         },
@@ -431,11 +437,11 @@ mod test {
         };
     }
 
-//    tests!(basefold, Basefold<bn256::Fr, Keccak256>);    
-//    tests!(brakedown, MultilinearBrakedown<bn256::Fr, Keccak256, BrakedownSpec6>);
-//    tests!(hyrax, MultilinearHyrax<grumpkin::G1Affine>, 5..16);
-//    tests!(ipa, MultilinearIpa<grumpkin::G1Affine>);
-//    tests!(kzg, MultilinearKzg<Bn256>);
-//    tests!(gemini_kzg, Gemini<UnivariateKzg<Bn256>>);
-//    tests!(zeromorph_kzg, Zeromorph<UnivariateKzg<Bn256>>);
+    //    tests!(basefold, Basefold<bn256::Fr, Keccak256>);
+    //    tests!(brakedown, MultilinearBrakedown<bn256::Fr, Keccak256, BrakedownSpec6>);
+    //    tests!(hyrax, MultilinearHyrax<grumpkin::G1Affine>, 5..16);
+    //    tests!(ipa, MultilinearIpa<grumpkin::G1Affine>);
+    //    tests!(kzg, MultilinearKzg<Bn256>);
+    //    tests!(gemini_kzg, Gemini<UnivariateKzg<Bn256>>);
+    //    tests!(zeromorph_kzg, Zeromorph<UnivariateKzg<Bn256>>);
 }

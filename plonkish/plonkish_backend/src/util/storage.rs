@@ -68,6 +68,7 @@ pub struct Storage {
     pub open_transcript: Option<Blake2sTranscript<Blake2s>>,
 
     // bench data
+    pub proof_size: Mutex<usize>,
     pub counter: Mutex<u128>,
     pub pcs: Option<Arc<Mutex<MyPcs>>>,
     pub domains_and_polys_by_round: [Option<
@@ -121,6 +122,7 @@ pub static mut STORAGE: Storage = Storage {
     recording_mutex: Mutex::new([false; 3]),
     recording_comm: None,
 
+    proof_size: Mutex::new(0),
     commit_result: None,
     query_result: [const { None }; MAX_POLYS],
     open_transcript: None,

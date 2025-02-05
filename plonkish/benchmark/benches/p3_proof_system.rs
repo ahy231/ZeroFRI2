@@ -1,12 +1,3 @@
-use benchmark::{
-    espresso,
-    halo2::{AggregationCircuit, Sha256Circuit},
-};
-// Imports from `espresso_hyperplonk` for certain proof systems or mocking circuits.
-use espresso_hyperplonk::{prelude::MockCircuit, HyperPlonkSNARK};
-// Additional subroutines (e.g., for multilinear KZG).
-use espresso_subroutines::{MultilinearKzgPCS, PolyIOP, PolynomialCommitmentScheme};
-
 // Standard Halo2 PLONK + KZG references.
 use halo2_proofs::{
     plonk::{create_proof, keygen_pk, keygen_vk, verify_proof},
@@ -69,7 +60,8 @@ fn main() {
 
 /// Benchmarks HyperPlonk for a given circuit size k and circuit type C.
 fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
-    // Mock benchmark
+    // ********** Mock benchmark **********
+
     unsafe {
         STORAGE.recording = true;
     }
@@ -91,7 +83,7 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     // end_timer(timer);
 
-    let proof = sample(System::HyperPlonk, k, true, || {
+    let proof = sample(System::HyperPlonk, 1, true, || {
         // let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
@@ -99,8 +91,8 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
         proof
     });
 
-    // let size = proof.len() * 8;
-    // writeln!(&mut (System::HyperPlonk).size_output(), "{}", size).unwrap();
+    let size = unsafe { STORAGE.proof_size.lock().unwrap() };
+    writeln!(&mut (System::HyperPlonk).size_output(), "{}", size).unwrap();
 
     let accept = verifier_sample(System::HyperPlonk, k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
@@ -109,7 +101,8 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     // If verification fails, panic in debug mode.
     assert!(accept);
 
-    // Real benchmark
+    // ********** Real benchmark **********
+
     unsafe {
         STORAGE.recording = false;
     }
@@ -152,9 +145,9 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     });
 
     // 11) Proof size in bits (assuming each byte is 8 bits).
-    let size = proof.len() * 8;
+    // let size = proof.len() * 8;
     // Write the proof size into a file specific to this system.
-    writeln!(&mut (System::HyperPlonk).size_output(), "{}", size).unwrap();
+    // writeln!(&mut (System::HyperPlonk).size_output(), "{}", size).unwrap();
 
     // 12) Verification, measured via `verifier_sample`.
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));

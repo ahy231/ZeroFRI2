@@ -1332,21 +1332,6 @@ pub fn p3_open_helper(
     Result<(), Error>,
     (Vec<(Vec<(Fr, Fr)>, Vec<usize>)>, Vec<usize>),
 ) {
-    let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
-    let pcs = p.lock().unwrap().clone();
-    let prover_data = unsafe { STORAGE.data_by_round[comm.index].clone().unwrap() };
-    let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
-    let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
-    challenger.observe_slice(&commits_by_round);
-    let challenge = challenger.sample_ext_element();
-
-    let rounds = vec![(&prover_data[0], vec![vec![challenge]])];
-    let (opening_by_round, proof) = pcs.open(rounds, &mut challenger);
-    unsafe {
-        STORAGE.opening_by_round[comm.index] = Some(opening_by_round);
-        STORAGE.proof[comm.index] = Some(proof);
-    }
-
     if unsafe { STORAGE.recording } {
         let mut recording_mutex = unsafe { STORAGE.recording_mutex.lock().unwrap() };
         if !recording_mutex[1] {
@@ -1524,6 +1509,33 @@ pub fn p3_open_helper(
         }
     }
 
+    let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
+    let pcs = p.lock().unwrap().clone();
+    let prover_data = unsafe { STORAGE.data_by_round[comm.index].clone().unwrap() };
+    let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
+    let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
+    challenger.observe_slice(&commits_by_round);
+
+    if unsafe { STORAGE.recording } {
+        let mut proof_size = unsafe { STORAGE.proof_size.lock().unwrap() };
+        *proof_size += 32 * 32 * commits_by_round.len(); // 32 words, 32 bytes each
+    }
+
+    let challenge = challenger.sample_ext_element();
+
+    let rounds = vec![(&prover_data[0], vec![vec![challenge]])];
+    let (opening_by_round, proof) = pcs.open(rounds, &mut challenger);
+
+    if unsafe { STORAGE.recording } {
+        let mut proof_size = unsafe { STORAGE.proof_size.lock().unwrap() };
+        *proof_size += std::mem::size_of_val(&proof);
+    }
+
+    unsafe {
+        STORAGE.opening_by_round[comm.index] = Some(opening_by_round);
+        STORAGE.proof[comm.index] = Some(proof);
+    }
+
     let query_result = unsafe { STORAGE.query_result.clone() };
 
     //	println!("additional overhead {:?}", ov.elapsed());
@@ -1540,40 +1552,6 @@ pub fn p3_verify_helper<F: PrimeField, H: Hash>(
     if unsafe { STORAGE.recording } {
         let mut recording_mutex = unsafe { STORAGE.recording_mutex.lock().unwrap() };
         if recording_mutex[2] {
-            let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
-            let domains_and_polys_by_round = unsafe {
-                STORAGE.domains_and_polys_by_round[comm.index]
-                    .clone()
-                    .unwrap()
-            };
-            let opening_by_round = unsafe { STORAGE.opening_by_round[comm.index].clone().unwrap() };
-            let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
-            let pcs = p.lock().unwrap().clone();
-            let proof = unsafe { STORAGE.proof[comm.index].clone().unwrap() };
-            let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
-            challenger.observe_slice(&commits_by_round);
-            let challenge = challenger.sample_ext_element();
-
-            let commits_and_claims_by_round = izip!(
-                commits_by_round,
-                domains_and_polys_by_round,
-                opening_by_round
-            )
-            .map(|(commit, domains_and_polys, openings)| {
-                let claims = domains_and_polys
-                    .iter()
-                    .zip(openings)
-                    .map(|((domain, _), mat_openings)| {
-                        (*domain, vec![(challenge, mat_openings[0].clone())])
-                    })
-                    .collect_vec();
-                (commit, claims)
-            })
-            .collect_vec();
-
-            pcs.verify(commits_and_claims_by_round, &proof, &mut challenger)
-                .unwrap();
-
             //construct evaluation codeword
             let field_size = 256;
             let n = (1 << (vp.num_vars + vp.log_rate));
@@ -1772,6 +1750,41 @@ pub fn p3_verify_helper<F: PrimeField, H: Hash>(
             return (Ok(()), queries_usize);
         }
     }
+
+    let commits_by_round = unsafe { STORAGE.commits_by_round[comm.index].clone().unwrap() };
+    let domains_and_polys_by_round = unsafe {
+        STORAGE.domains_and_polys_by_round[comm.index]
+            .clone()
+            .unwrap()
+    };
+    let opening_by_round = unsafe { STORAGE.opening_by_round[comm.index].clone().unwrap() };
+    let p = unsafe { STORAGE.pcs.as_ref().unwrap() };
+    let pcs = p.lock().unwrap().clone();
+    let proof = unsafe { STORAGE.proof[comm.index].clone().unwrap() };
+    let mut challenger = unsafe { STORAGE.challenger[comm.index].clone().unwrap() };
+    challenger.observe_slice(&commits_by_round);
+    let challenge = challenger.sample_ext_element();
+
+    let commits_and_claims_by_round = izip!(
+        commits_by_round,
+        domains_and_polys_by_round,
+        opening_by_round
+    )
+    .map(|(commit, domains_and_polys, openings)| {
+        let claims = domains_and_polys
+            .iter()
+            .zip(openings)
+            .map(|((domain, _), mat_openings)| {
+                (*domain, vec![(challenge, mat_openings[0].clone())])
+            })
+            .collect_vec();
+        (commit, claims)
+    })
+    .collect_vec();
+
+    pcs.verify(commits_and_claims_by_round, &proof, &mut challenger)
+        .unwrap();
+
     let queries_usize = unsafe { STORAGE.query_result.clone() };
     return (Ok(()), queries_usize[comm.index].clone().unwrap().1);
 }
