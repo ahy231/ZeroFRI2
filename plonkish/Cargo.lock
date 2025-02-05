@@ -265,6 +265,7 @@ name = "bench-cli"
 version = "0.1.0"
 dependencies = [
  "dialoguer",
+ "regex",
 ]
 
 [[package]]
@@ -279,28 +280,29 @@ dependencies = [
  "halo2_proofs",
  "hyperplonk",
  "itertools 0.10.5",
- "p3-air",
- "p3-baby-bear",
- "p3-blake3",
- "p3-bn254-fr",
- "p3-challenger",
- "p3-circle",
- "p3-commit",
- "p3-dft",
- "p3-field",
- "p3-fri",
- "p3-goldilocks",
- "p3-keccak",
- "p3-matrix",
- "p3-mds",
- "p3-merkle-tree",
- "p3-mersenne-31",
- "p3-monty-31",
- "p3-poseidon",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
+ "p3-air 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-baby-bear 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-blake3 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-bn254-fr 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-circle 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-fri 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-goldilocks 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-keccak 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-merkle-tree 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mersenne-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-monty-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
  "plonkish_backend",
+ "prettytable",
  "rand",
  "rayon",
  "serde",
@@ -516,7 +518,7 @@ dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
- "unicode-width",
+ "unicode-width 0.2.0",
  "windows-sys 0.59.0",
 ]
 
@@ -653,6 +655,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acdc4883a9c96732e4733212c01447ebd805833b7275a73ca3ee080fd77afdaf"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5efa2b3d7902f4b634a20cae3c9c4e6209dc4779feb6863329607560143efa70"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "ctr"
 version = "0.9.2"
 source = "git+https://github.com/RustCrypto/block-modes?rev=78fefba5a80f3d788fd8ba7c4483625148f5dc18#78fefba5a80f3d788fd8ba7c4483625148f5dc18"
@@ -710,6 +733,27 @@ dependencies = [
  "block-buffer 0.10.4",
  "crypto-common",
  "subtle",
+]
+
+[[package]]
+name = "dirs-next"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b98cf8ebf19c3d1b223e151f99a4f9f0690dca41414773390fc824184ac833e1"
+dependencies = [
+ "cfg-if",
+ "dirs-sys-next",
+]
+
+[[package]]
+name = "dirs-sys-next"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ebda144c4fe02d1f7ea1a7d9641b6fc6b580adcfa024ae48797ecdeb6825b4d"
+dependencies = [
+ "libc",
+ "redox_users",
+ "winapi",
 ]
 
 [[package]]
@@ -1203,6 +1247,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e9489c2807c139ffd9c1794f4af0ebe86a828db53ecdc7fea2111d0fed085d1"
 
 [[package]]
+name = "libredox"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
+dependencies = [
+ "bitflags 2.6.0",
+ "libc",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1394,8 +1448,17 @@ name = "p3-air"
 version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
- "p3-field",
- "p3-matrix",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+]
+
+[[package]]
+name = "p3-air"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
 ]
 
 [[package]]
@@ -1403,11 +1466,25 @@ name = "p3-baby-bear"
 version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
- "p3-field",
- "p3-mds",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-monty-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+]
+
+[[package]]
+name = "p3-baby-bear"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-monty-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
 ]
@@ -1418,8 +1495,18 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "blake3",
- "p3-symmetric",
- "p3-util",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+]
+
+[[package]]
+name = "p3-blake3"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "blake3",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
 ]
 
 [[package]]
@@ -1433,12 +1520,34 @@ dependencies = [
  "num-integer",
  "num-traits",
  "nums",
- "p3-field",
- "p3-maybe-rayon",
- "p3-monty-31",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-monty-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "p3-bn254-fr"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "ff",
+ "halo2curves 0.8.0",
+ "num-bigint 0.4.6",
+ "num-integer",
+ "num-traits",
+ "nums",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-monty-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
  "tracing",
@@ -1449,10 +1558,22 @@ name = "p3-challenger"
 version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
- "p3-field",
- "p3-maybe-rayon",
- "p3-symmetric",
- "p3-util",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "tracing",
+]
+
+[[package]]
+name = "p3-challenger"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "tracing",
 ]
 
@@ -1462,14 +1583,32 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-challenger",
- "p3-commit",
- "p3-dft",
- "p3-field",
- "p3-fri",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-util",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-fri 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "p3-circle"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-fri 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "serde",
  "tracing",
 ]
@@ -1480,11 +1619,25 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-challenger",
- "p3-dft",
- "p3-field",
- "p3-matrix",
- "p3-util",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "serde",
+]
+
+[[package]]
+name = "p3-commit"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "serde",
 ]
 
@@ -1494,10 +1647,23 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-util",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "tracing",
+]
+
+[[package]]
+name = "p3-dft"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "tracing",
 ]
 
@@ -1511,8 +1677,25 @@ dependencies = [
  "num-integer",
  "num-traits",
  "nums",
- "p3-maybe-rayon",
- "p3-util",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "p3-field"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "num-bigint 0.4.6",
+ "num-integer",
+ "num-traits",
+ "nums",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
  "tracing",
@@ -1524,15 +1707,35 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-bn254-fr",
- "p3-challenger",
- "p3-commit",
- "p3-dft",
- "p3-field",
- "p3-interpolation",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-util",
+ "p3-bn254-fr 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-interpolation 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "p3-fri"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-bn254-fr 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-interpolation 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
  "tracing",
@@ -1544,13 +1747,30 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "num-bigint 0.4.6",
- "p3-dft",
- "p3-field",
- "p3-mds",
- "p3-poseidon",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+]
+
+[[package]]
+name = "p3-goldilocks"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "num-bigint 0.4.6",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
 ]
@@ -1560,10 +1780,21 @@ name = "p3-interpolation"
 version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-util",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+]
+
+[[package]]
+name = "p3-interpolation"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
 ]
 
 [[package]]
@@ -1572,9 +1803,21 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-field",
- "p3-symmetric",
- "p3-util",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "tiny-keccak",
+]
+
+[[package]]
+name = "p3-keccak"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "tiny-keccak",
 ]
 
@@ -1584,9 +1827,24 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-field",
- "p3-maybe-rayon",
- "p3-util",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+ "tracing",
+ "transpose",
+]
+
+[[package]]
+name = "p3-matrix"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
  "tracing",
@@ -1599,16 +1857,35 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 
 [[package]]
+name = "p3-maybe-rayon"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+
+[[package]]
 name = "p3-mds"
 version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-dft",
- "p3-field",
- "p3-matrix",
- "p3-symmetric",
- "p3-util",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+]
+
+[[package]]
+name = "p3-mds"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
 ]
 
@@ -1618,12 +1895,29 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-commit",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-symmetric",
- "p3-util",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "p3-merkle-tree"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
  "tracing",
@@ -1636,14 +1930,33 @@ source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e9
 dependencies = [
  "itertools 0.14.0",
  "num-bigint 0.4.6",
- "p3-dft",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-mds",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+]
+
+[[package]]
+name = "p3-mersenne-31"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "num-bigint 0.4.6",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
 ]
@@ -1655,14 +1968,35 @@ source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e9
 dependencies = [
  "itertools 0.14.0",
  "num-bigint 0.4.6",
- "p3-dft",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-mds",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+ "serde",
+ "tracing",
+ "transpose",
+]
+
+[[package]]
+name = "p3-monty-31"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "num-bigint 0.4.6",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-maybe-rayon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
  "serde",
  "tracing",
@@ -1674,9 +2008,20 @@ name = "p3-poseidon"
 version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
- "p3-field",
- "p3-mds",
- "p3-symmetric",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+]
+
+[[package]]
+name = "p3-poseidon"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
 ]
 
@@ -1686,9 +2031,21 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "gcd",
- "p3-field",
- "p3-mds",
- "p3-symmetric",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "rand",
+]
+
+[[package]]
+name = "p3-poseidon2"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "gcd",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "rand",
 ]
 
@@ -1698,7 +2055,17 @@ version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
 dependencies = [
  "itertools 0.14.0",
- "p3-field",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
+ "serde",
+]
+
+[[package]]
+name = "p3-symmetric"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
+dependencies = [
+ "itertools 0.14.0",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "serde",
 ]
 
@@ -1706,6 +2073,14 @@ dependencies = [
 name = "p3-util"
 version = "0.1.0"
 source = "git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69#704ca8551f536dcc9108eb1df8e94757ef379e69"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "p3-util"
+version = "0.1.0"
+source = "git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965#8d2027e421c8d3f8f3b4d0da66f47458801af965"
 dependencies = [
  "serde",
 ]
@@ -1792,27 +2167,27 @@ dependencies = [
  "itertools 0.13.0",
  "num-bigint 0.4.6",
  "num-integer",
- "p3-air",
- "p3-baby-bear",
- "p3-blake3",
- "p3-bn254-fr",
- "p3-challenger",
- "p3-circle",
- "p3-commit",
- "p3-dft",
- "p3-field",
- "p3-fri",
- "p3-goldilocks",
- "p3-keccak",
- "p3-matrix",
- "p3-mds",
- "p3-merkle-tree",
- "p3-mersenne-31",
- "p3-monty-31",
- "p3-poseidon",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
+ "p3-air 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-baby-bear 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-blake3 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-bn254-fr 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-challenger 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-circle 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-commit 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-dft 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-field 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-fri 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-goldilocks 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-keccak 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-matrix 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mds 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-merkle-tree 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-mersenne-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-monty-31 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-poseidon2 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-symmetric 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
+ "p3-util 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=8d2027e421c8d3f8f3b4d0da66f47458801af965)",
  "pasta_curves",
  "paste",
  "plonky2_util",
@@ -1913,6 +2288,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "prettytable"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46480520d1b77c9a3482d39939fcf96831537a250ec62d4fd8fbdf8e0302e781"
+dependencies = [
+ "csv",
+ "encode_unicode",
+ "is-terminal",
+ "lazy_static",
+ "term",
+ "unicode-width 0.1.14",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2006,6 +2395,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_users"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
+dependencies = [
+ "getrandom",
+ "libredox",
+ "thiserror",
+]
+
+[[package]]
 name = "regex"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2070,6 +2470,12 @@ dependencies = [
  "linux-raw-sys",
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "rustversion"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c45b9784283f1b2e7fb61b42047c2fd678ef0960d4f6f1eba131594cc369d4"
 
 [[package]]
 name = "ryu"
@@ -2330,6 +2736,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "term"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c59df8ac95d96ff9bede18eb7300b0fda5e5d8d90960e76f8e14ae765eedbf1f"
+dependencies = [
+ "dirs-next",
+ "rustversion",
+ "winapi",
+]
+
+[[package]]
 name = "textwrap"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2459,6 +2876,12 @@ name = "unicode-ident"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91b56cd4cadaeb79bbf1a5645f6b4f8dc5bde8834ad5894a8db35fda9efa1fe"
+
+[[package]]
+name = "unicode-width"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
 
 [[package]]
 name = "unicode-width"

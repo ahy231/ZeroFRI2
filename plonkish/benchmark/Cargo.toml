@@ -8,6 +8,7 @@ rand = "0.8"
 itertools = "0.10.5"
 gnuplot = "0.0.37"
 rayon = "1.5.3"
+prettytable = "0.10"
 
 # plonkish_backend
 plonkish_backend = { path = "../plonkish_backend", features = ["benchmark"] }
@@ -76,9 +77,9 @@ timer = [
 # [[bench]]
 # name = "zeromorph_fri_proof_system"
 # harness = false
-# [[bench]]
-# name = "gemini_proof_system"
-# harness = false
+[[bench]]
+name = "gemini_proof_system"
+harness = false
 # [[bench]]
 # name = "basefold_proof_system"
 # harness = false
