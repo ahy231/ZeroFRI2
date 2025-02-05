@@ -1,5 +1,5 @@
 [workspace]
-members = ["benchmark", "plonkish_backend"]
+members = [ "bench-cli","benchmark", "plonkish_backend"]
 
 [profile.flamegraph]
 inherits = "release"
