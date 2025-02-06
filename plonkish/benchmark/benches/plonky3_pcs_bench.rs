@@ -1,6 +1,7 @@
+use num_bigint::BigInt;
 use p3_bn254_fr::{Bn254Fr, FakeExtension};
 use p3_circle::CirclePcs;
-use rand::rngs::OsRng;
+use rand::{rngs::OsRng, thread_rng};
 
 use itertools::{izip, Itertools};
 use plonkish_backend::util::{end_timer, start_timer, Serialize};
@@ -9,7 +10,7 @@ use std::{
     env::args,
     fmt::Display,
     fs::{create_dir, File, OpenOptions},
-    io::Write,
+    io::{BufRead, Write},
     iter,
     marker::PhantomData,
     ops::Range,
@@ -51,11 +52,17 @@ enum System {
     Fri,
     Circle,
     BigFieldFri,
+    FriFromFile,
 }
 
 impl System {
     fn all() -> Vec<System> {
-        vec![System::Fri, System::Circle]
+        vec![
+            System::Fri,
+            System::Circle,
+            System::BigFieldFri,
+            System::FriFromFile,
+        ]
     }
 
     fn output_path(&self) -> String {
@@ -237,6 +244,82 @@ impl System {
                     vec![vec![k; repetition]; rounds],
                 );
             }
+            System::FriFromFile => {
+                // store matrix in file in big endian order
+                let mut rng = thread_rng();
+                let matrix = RowMajorMatrix::<BabyBear>::rand(&mut rng, 1 << k, 7);
+                let row_slices = matrix.row_slices();
+                let file_name = format!("bench_data/p3_pcs_input/fri_babybear_{k}");
+                let mut file = File::create(file_name.clone()).unwrap();
+                for row in row_slices {
+                    for el in row {
+                        let num = el.to_string();
+                        let bigint = BigInt::parse_bytes(num.as_bytes(), 10).unwrap();
+                        let hex = bigint
+                            .to_radix_be(16)
+                            .1
+                            .iter()
+                            .map(|e| format!("{:x}", e))
+                            .reduce(|acc, e| format!("{}{}", acc, e))
+                            .unwrap();
+                        file.write_fmt(format_args!("{:0>8} ", hex)).unwrap();
+                    }
+                    file.write_fmt(format_args!("\n")).unwrap();
+                }
+                file.flush().unwrap();
+
+                type Val = BabyBear;
+                type Challenge = BinomialExtensionField<Val, 4>;
+
+                type Perm = Poseidon2BabyBear<16>;
+                type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
+                type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+
+                type ValMmcs = MerkleTreeMmcs<
+                    <Val as Field>::Packing,
+                    <Val as Field>::Packing,
+                    MyHash,
+                    MyCompress,
+                    8,
+                >;
+                type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
+
+                type Dft = Radix2DitParallel<Val>;
+                type Challenger = DuplexChallenger<Val, Perm, 16, 8>;
+
+                let log_blowup = 4;
+
+                let perm = Perm::new_from_rng_128(&mut seeded_rng());
+                let hash = MyHash::new(perm.clone());
+                let compress = MyCompress::new(perm.clone());
+
+                let val_mmcs = ValMmcs::new(hash, compress);
+                let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
+
+                let fri_config = FriConfig {
+                    log_blowup,
+                    log_final_poly_len: 0,
+                    num_queries: 10,
+                    proof_of_work_bits: 8,
+                    mmcs: challenge_mmcs,
+                };
+
+                let pcs = TwoAdicFriPcs::<Val, Dft, ValMmcs, ChallengeMmcs>::new(
+                    Dft::default(),
+                    val_mmcs,
+                    fri_config,
+                );
+
+                let log_degrees_by_round = vec![vec![k; rounds]; 1];
+
+                do_bench_pcs_from_file(
+                    k,
+                    System::FriFromFile,
+                    &(pcs, Challenger::new(perm.clone())),
+                    log_degrees_by_round,
+                    file_name.as_str(),
+                );
+            }
         }
     }
 }
@@ -247,6 +330,7 @@ impl Display for System {
             System::Fri => write!(f, "fri"),
             System::Circle => write!(f, "circle"),
             System::BigFieldFri => write!(f, "big_field_fri"),
+            System::FriFromFile => write!(f, "fri_from_file"),
         }
     }
 }
@@ -262,6 +346,7 @@ fn parse_args() -> (Vec<System>, Range<usize>, usize, usize) {
                         "fri" => systems.push(System::Fri),
                         "circle" => systems.push(System::Circle),
                         "big_field_fri" => systems.push(System::BigFieldFri),
+                        "fri_from_file" => systems.push(System::FriFromFile),
                         _ => panic!("system should be one of {{all,fri}}"),
                     },
                     "--k" => {
@@ -356,6 +441,166 @@ fn do_bench_pcs<Val, Challenge, Challenger, P>(
 
     let mut commit_times = Vec::new();
     let mut domains_and_polys_by_round = Vec::new();
+    let mut matrix_by_round = Vec::new();
+    for _ in 0..sample_size {
+        let width = 5 + rng.gen_range(0..=10);
+        matrix_by_round.push(RowMajorMatrix::<Val>::rand(&mut rng, 1 << k, width));
+    }
+    for i in 0..sample_size {
+        let start = Instant::now();
+        domains_and_polys_by_round = log_degrees_by_round
+            .iter()
+            .map(|log_degrees| {
+                log_degrees
+                    .iter()
+                    .map(|&log_degree| {
+                        let d = 1 << log_degree;
+                        // random width 5-15
+                        (pcs.natural_domain_for_degree(d), matrix_by_round[i].clone())
+                    })
+                    .collect_vec()
+            })
+            .collect_vec();
+        commit_times.push(start.elapsed());
+    }
+    let sum = commit_times.iter().sum::<Duration>();
+    let avg = sum / sample_size as u32;
+    writeln!(&mut system.commit_output(), "{k}, {}", avg.as_millis()).unwrap();
+    println!(
+        "Commit time for {:?}, k = {k} is {} ms",
+        system,
+        avg.as_millis()
+    );
+
+    // Start timing for commit phase
+    let _timer = start_timer(|| format!("commit -{k}"));
+
+    let (commits_by_round, data_by_round): (Vec<_>, Vec<_>) = domains_and_polys_by_round
+        .iter()
+        .map(|domains_and_polys| pcs.commit(domains_and_polys.clone()))
+        .unzip();
+
+    // Start timing for prove phase
+    let _timer = start_timer(|| format!("prove -{k}"));
+
+    assert_eq!(commits_by_round.len(), num_rounds);
+    assert_eq!(data_by_round.len(), num_rounds);
+    p_challenger.observe_slice(&commits_by_round);
+
+    let zeta: Challenge = p_challenger.sample_ext_element();
+
+    let points_by_round = log_degrees_by_round
+        .iter()
+        .map(|log_degrees| vec![vec![zeta]; log_degrees.len()])
+        .collect_vec();
+    let data_and_points: Vec<_> = data_by_round.iter().zip(points_by_round).collect();
+    let (opening_by_round, proof) = sample(system, k, || {
+        pcs.open(data_and_points.clone(), &mut p_challenger.clone())
+    });
+    assert_eq!(opening_by_round.len(), num_rounds);
+
+    // Start timing for verify phase
+    let timer = start_timer(|| format!("verify -{k}"));
+
+    // Verify the proof
+    let mut v_challenger = challenger.clone();
+    v_challenger.observe_slice(&commits_by_round);
+    let verifier_zeta: Challenge = v_challenger.sample_ext_element();
+    assert_eq!(verifier_zeta, zeta);
+
+    let commits_and_claims_by_round = izip!(
+        commits_by_round,
+        domains_and_polys_by_round,
+        opening_by_round
+    )
+    .map(|(commit, domains_and_polys, openings)| {
+        let claims = domains_and_polys
+            .iter()
+            .zip(openings)
+            .map(|((domain, _), mat_openings)| (*domain, vec![(zeta, mat_openings[0].clone())]))
+            .collect_vec();
+        (commit, claims)
+    })
+    .collect_vec();
+
+    assert_eq!(commits_and_claims_by_round.len(), num_rounds);
+
+    let now = Instant::now();
+    let verify_result = pcs.verify(commits_and_claims_by_round, &proof, &mut v_challenger);
+    writeln!(
+        &mut system.verify_output(),
+        "{:?}: {:?}",
+        k,
+        now.elapsed().as_millis()
+    )
+    .unwrap();
+
+    end_timer(timer);
+
+    // Calculate proof size
+    let mut proof_vec = Vec::new();
+    proof
+        .serialize(&mut serde_json::Serializer::new(&mut proof_vec))
+        .unwrap();
+    let proof_size = proof_vec.len();
+    // Log the results
+    writeln!(
+        &mut system.size_output(),
+        "{:?} {:?} : {:?}",
+        system,
+        k,
+        proof_size
+    )
+    .unwrap();
+
+    assert!(verify_result.is_ok());
+}
+
+fn do_bench_pcs_from_file<Val, Challenge, Challenger, P>(
+    k: usize,
+    system: System,
+    (pcs, challenger): &(P, Challenger),
+    log_degrees_by_round: Vec<Vec<usize>>,
+    file_path: &str,
+) where
+    P: Pcs<Challenge, Challenger>,
+    P::Domain: PolynomialSpace<Val = Val>,
+    Val: Field,
+    Standard: Distribution<Val>,
+    Challenge: ExtensionField<Val>,
+    Challenger: Clone + CanObserve<P::Commitment> + FieldChallenger<Val>,
+{
+    let num_rounds = log_degrees_by_round.len();
+
+    let mut p_challenger = challenger.clone();
+    let sample_size = sample_size(k);
+
+    let file = File::open(file_path).unwrap();
+    let mut buf_reader = std::io::BufReader::new(file);
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    while buf_reader.read_line(&mut line).unwrap() > 0 {
+        lines.push(line.clone());
+        line.clear();
+    }
+
+    let mut values = Vec::new();
+    for line in lines {
+        let nums: Vec<&str> = line.split_whitespace().collect();
+        for num in nums {
+            let bigint = BigInt::parse_bytes(num.as_bytes(), 16).unwrap();
+            let digits: Vec<u32> = bigint.iter_u32_digits().collect();
+            assert!(digits.len() == 1);
+            values.push(Val::from_canonical_u32(digits[0]));
+        }
+    }
+
+    let restored_matrix = RowMajorMatrix::new(values, 7);
+
+    let _timer = start_timer(|| format!("PCS setup -{k}"));
+
+    let mut commit_times = Vec::new();
+    let mut domains_and_polys_by_round = Vec::new();
     for _ in 0..sample_size {
         let start = Instant::now();
         domains_and_polys_by_round = log_degrees_by_round
@@ -366,11 +611,8 @@ fn do_bench_pcs<Val, Challenge, Challenger, P>(
                     .map(|&log_degree| {
                         let d = 1 << log_degree;
                         // random width 5-15
-                        let width = 5 + rng.gen_range(0..=10);
-                        (
-                            pcs.natural_domain_for_degree(d),
-                            RowMajorMatrix::<Val>::rand(&mut rng, d, width),
-                        )
+                        // let width = 5 + rng.gen_range(0..=10);
+                        (pcs.natural_domain_for_degree(d), restored_matrix.clone())
                     })
                     .collect_vec()
             })

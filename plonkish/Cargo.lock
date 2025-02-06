@@ -280,6 +280,8 @@ dependencies = [
  "halo2_proofs",
  "hyperplonk",
  "itertools 0.10.5",
+ "num-bigint 0.4.6",
+ "num-traits",
  "p3-air 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
  "p3-baby-bear 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
  "p3-blake3 0.1.0 (git+https://github.com/ahy231/Plonky3?rev=704ca8551f536dcc9108eb1df8e94757ef379e69)",
