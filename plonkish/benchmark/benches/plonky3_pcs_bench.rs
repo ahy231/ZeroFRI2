@@ -1,10 +1,19 @@
+use halo2_gadgets::ecc::chip::H;
 use num_bigint::BigInt;
 use p3_bn254_fr::{Bn254Fr, FakeExtension};
 use p3_circle::CirclePcs;
+use p3_util::log2_strict_usize;
 use rand::{rngs::OsRng, thread_rng};
 
 use itertools::{izip, Itertools};
-use plonkish_backend::util::{end_timer, start_timer, Serialize};
+use plonkish_backend::util::{
+    end_timer,
+    matrix::{
+        dumper::Dumper,
+        loader::{self, Loader},
+    },
+    start_timer, Serialize,
+};
 
 use std::{
     env::args,
@@ -32,6 +41,7 @@ use p3_merkle_tree::MerkleTreeMmcs;
 use p3_mersenne_31::Mersenne31;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32, SerializingHasher64};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+use plonkish_backend::util::matrix::container::Field as CF;
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 
@@ -247,26 +257,37 @@ impl System {
             System::FriFromFile => {
                 // store matrix in file in big endian order
                 let mut rng = thread_rng();
-                let matrix = RowMajorMatrix::<BabyBear>::rand(&mut rng, 1 << k, 7);
-                let row_slices = matrix.row_slices();
-                let file_name = format!("bench_data/p3_pcs_input/fri_babybear_{k}");
-                let mut file = File::create(file_name.clone()).unwrap();
-                for row in row_slices {
-                    for el in row {
-                        let num = el.to_string();
-                        let bigint = BigInt::parse_bytes(num.as_bytes(), 10).unwrap();
-                        let hex = bigint
-                            .to_radix_be(16)
-                            .1
-                            .iter()
-                            .map(|e| format!("{:x}", e))
-                            .reduce(|acc, e| format!("{}{}", acc, e))
-                            .unwrap();
-                        file.write_fmt(format_args!("{:0>8} ", hex)).unwrap();
-                    }
-                    file.write_fmt(format_args!("\n")).unwrap();
-                }
-                file.flush().unwrap();
+
+                let matrix_num = 2;
+                let matrix_widths = vec![2, 3];
+                let heights = vec![16, 8];
+                let multi_polys = (0..matrix_num)
+                    .map(|i| {
+                        (0..matrix_widths[i])
+                            .map(|_| {
+                                (0..heights[i])
+                                    .map(|_| BabyBear::new(rng.gen::<u32>()))
+                                    .collect_vec()
+                            })
+                            .collect_vec()
+                    })
+                    .collect();
+
+                let dumper = Dumper::new(CF::Babybear);
+                let file_name = "bench_data/p3_pcs_input/fri_babybear_from_file.json";
+                dumper.dump(&multi_polys, file_name, |x: &BabyBear| {
+                    let x = x.clone().to_string();
+                    let buf = x.as_bytes();
+                    let num = BigInt::parse_bytes(buf, 10).unwrap();
+                    let hex = num
+                        .to_radix_be(16)
+                        .1
+                        .iter()
+                        .map(|e| format!("{:x}", e))
+                        .collect::<Vec<_>>()
+                        .join("");
+                    format!("{:0>8}", hex)
+                });
 
                 type Val = BabyBear;
                 type Challenge = BinomialExtensionField<Val, 4>;
@@ -310,14 +331,17 @@ impl System {
                     fri_config,
                 );
 
-                let log_degrees_by_round = vec![vec![k; rounds]; 1];
+                let log_degrees_by_round =
+                    vec![heights.iter().map(|h| log2_strict_usize(*h)).collect()];
 
                 do_bench_pcs_from_file(
                     k,
                     System::FriFromFile,
                     &(pcs, Challenger::new(perm.clone())),
                     log_degrees_by_round,
-                    file_name.as_str(),
+                    file_name,
+                    CF::Babybear,
+                    |s| BabyBear::new(u32::from_str_radix(s, 16).unwrap()),
                 );
             }
         }
@@ -562,6 +586,8 @@ fn do_bench_pcs_from_file<Val, Challenge, Challenger, P>(
     (pcs, challenger): &(P, Challenger),
     log_degrees_by_round: Vec<Vec<usize>>,
     file_path: &str,
+    field: CF,
+    parse: impl Fn(&str) -> Val,
 ) where
     P: Pcs<Challenge, Challenger>,
     P::Domain: PolynomialSpace<Val = Val>,
@@ -575,27 +601,8 @@ fn do_bench_pcs_from_file<Val, Challenge, Challenger, P>(
     let mut p_challenger = challenger.clone();
     let sample_size = sample_size(k);
 
-    let file = File::open(file_path).unwrap();
-    let mut buf_reader = std::io::BufReader::new(file);
-    let mut lines = Vec::new();
-    let mut line = String::new();
-    while buf_reader.read_line(&mut line).unwrap() > 0 {
-        lines.push(line.clone());
-        line.clear();
-    }
-
-    let mut values = Vec::new();
-    for line in lines {
-        let nums: Vec<&str> = line.split_whitespace().collect();
-        for num in nums {
-            let bigint = BigInt::parse_bytes(num.as_bytes(), 16).unwrap();
-            let digits: Vec<u32> = bigint.iter_u32_digits().collect();
-            assert!(digits.len() == 1);
-            values.push(Val::from_canonical_u32(digits[0]));
-        }
-    }
-
-    let restored_matrix = RowMajorMatrix::new(values, 7);
+    let loader = Loader::new(field);
+    let multi_mtx = loader.load(file_path, parse);
 
     let _timer = start_timer(|| format!("PCS setup -{k}"));
 
@@ -608,11 +615,12 @@ fn do_bench_pcs_from_file<Val, Challenge, Challenger, P>(
             .map(|log_degrees| {
                 log_degrees
                     .iter()
-                    .map(|&log_degree| {
+                    .enumerate()
+                    .map(|(i, &log_degree)| {
                         let d = 1 << log_degree;
                         // random width 5-15
                         // let width = 5 + rng.gen_range(0..=10);
-                        (pcs.natural_domain_for_degree(d), restored_matrix.clone())
+                        (pcs.natural_domain_for_degree(d), multi_mtx[i].clone())
                     })
                     .collect_vec()
             })

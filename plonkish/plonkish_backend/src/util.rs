@@ -5,6 +5,7 @@ pub mod expression;
 pub mod ff_255;
 pub mod goldilocksMont;
 pub mod hash;
+pub mod matrix;
 pub mod mersenne_61_mont;
 pub mod new_fields;
 pub mod parallel;
