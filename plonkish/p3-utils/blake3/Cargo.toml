@@ -1,0 +1,14 @@
+[package]
+name = "p3-blake3"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+p3-symmetric.workspace = true
+p3-util.workspace = true
+blake3.workspace = true
+
+[features]
+neon = ["blake3/neon"]
+parallel = ["blake3/rayon"]
