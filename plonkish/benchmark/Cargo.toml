@@ -36,28 +36,50 @@ espresso_hyperplonk = { git = "https://github.com/EspressoSystems/hyperplonk", r
     "parallel",
 ] }
 
+# p3-air = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-field = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-matrix = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-mersenne-31 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-util = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-baby-bear = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-challenger = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-circle = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-commit = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-dft = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-fri = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-goldilocks = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-blake3 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-keccak = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-mds = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-merkle-tree = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-poseidon = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-poseidon2 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-symmetric = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-monty-31 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+# p3-bn254-fr = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+
 # plonky3
-p3-air = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-field = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-matrix = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-mersenne-31 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-util = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-baby-bear = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-challenger = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-circle = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-commit = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-dft = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-fri = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-goldilocks = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-blake3 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-keccak = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-mds = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-merkle-tree = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-poseidon = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-poseidon2 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-symmetric = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-monty-31 = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
-p3-bn254-fr = { git = "https://github.com/ahy231/Plonky3", rev = "8d2027e421c8d3f8f3b4d0da66f47458801af965" }
+p3-air.workspace = true
+p3-field.workspace = true
+p3-matrix.workspace = true
+p3-mersenne-31.workspace = true
+p3-util.workspace = true
+p3-baby-bear.workspace = true
+p3-challenger.workspace = true
+p3-circle.workspace = true
+p3-commit.workspace = true
+p3-dft.workspace = true
+p3-fri.workspace = true
+p3-goldilocks.workspace = true
+p3-blake3.workspace = true
+p3-keccak.workspace = true
+p3-mds.workspace = true
+p3-merkle-tree.workspace = true
+p3-poseidon.workspace = true
+p3-poseidon2.workspace = true
+p3-symmetric.workspace = true
+p3-monty-31.workspace = true
+p3-bn254-fr.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 num-bigint = "0.4"
 num-traits = "0.2"
@@ -88,9 +110,9 @@ timer = [
 # [[bench]]
 # name = "hyrax_proof_system"
 # harness = false
-[[bench]]
-name = "plonky3_pcs_bench"
-harness = false
+# [[bench]]
+# name = "plonky3_pcs_bench"
+# harness = false
 # [[bench]]
 # name = "p3_proof_system"
 # harness = false

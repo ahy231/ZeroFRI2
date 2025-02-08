@@ -1,5 +1,37 @@
 [workspace]
-members = [ "bench-cli","benchmark", "p3-utils", "plonkish_backend"]
+members = [
+    "bench-cli",
+    "benchmark",
+    "plonkish_backend",
+    "p3-utils",
+    "p3-utils/air",
+    "p3-utils/field",
+    "p3-utils/mds",
+    "p3-utils/monty-31",
+    "p3-utils/poseidon2",
+    "p3-utils/symmetric",
+    "p3-utils/challenger",
+    "p3-utils/commit",
+    "p3-utils/dft",
+    "p3-utils/interpolation",
+    "p3-utils/matrix",
+    "p3-utils/maybe-rayon",
+    "p3-utils/util",
+    "p3-utils/bn254-fr",
+    "p3-utils/field-testing",
+    "p3-utils/baby-bear",
+    "p3-utils/circle",
+    "p3-utils/goldilocks",
+    "p3-utils/keccak",
+    "p3-utils/mersenne-31",
+    "p3-utils/merkle-tree",
+    "p3-utils/koala-bear",
+    "p3-utils/poseidon",
+    "p3-utils/fri",
+    "p3-utils/rescue",
+    "p3-utils/blake3",
+    
+]
 
 [profile.flamegraph]
 inherits = "release"
@@ -12,3 +44,56 @@ halo2_curves = { git = "https://github.com/han0110/halo2curves", branch = "featu
 
 [workspace.dependencies]
 serde = { version = "1.0.152" }
+criterion = "0.5.1"
+ff = "0.13"
+itertools = "0.14.0"
+halo2curves = "0.8.0"
+num-bigint = { version = "0.4.3", default-features = false }
+num-integer = "0.1.46"
+num-traits = { version = "0.2.19", default-features = false }
+nums = "0.1.0"
+rand = "0.8.5"
+rayon = "1.7.0"
+transpose = "0.2.3"
+rand_chacha = "0.3.1"
+rand_xoshiro = "0.6.0"
+serde_json = "1.0.113"
+gcd = "1.0"
+hashbrown = "0.14"
+tracing = "0.1.37"
+tracing-forest = "0.1.6"
+tracing-subscriber = "0.3.19"
+tiny-keccak = "2.0.2"
+blake3 = "1.5.5"
+num = "0.4.3"
+sha3 = "0.11.0-pre.4"
+modinverse = "0.1.1"
+zkhash = { git = "https://github.com/HorizenLabs/poseidon2" }
+
+# Local crates referenced with workspace=true
+p3-field = { path = "p3-utils/field" }
+p3-mds = { path = "p3-utils/mds" }
+p3-monty-31 = { path = "p3-utils/monty-31" }
+p3-poseidon2 = { path = "p3-utils/poseidon2" }
+p3-symmetric = { path = "p3-utils/symmetric" }
+p3-challenger = { path = "p3-utils/challenger" }
+p3-commit = { path = "p3-utils/commit" }
+p3-dft = { path = "p3-utils/dft" }
+p3-interpolation = { path = "p3-utils/interpolation" }
+p3-matrix = { path = "p3-utils/matrix" }
+p3-maybe-rayon = { path = "p3-utils/maybe-rayon" }
+p3-util = { path = "p3-utils/util" }
+p3-bn254-fr = { path = "p3-utils/bn254-fr" }
+p3-field-testing = { path = "p3-utils/field-testing" }
+p3-baby-bear = { path = "p3-utils/baby-bear" }
+p3-circle = { path = "p3-utils/circle" }
+p3-goldilocks = { path = "p3-utils/goldilocks" }
+p3-keccak = { path = "p3-utils/keccak" }
+p3-mersenne-31 = { path = "p3-utils/mersenne-31" }
+p3-merkle-tree = { path = "p3-utils/merkle-tree" }
+p3-koala-bear = { path = "p3-utils/koala-bear" }
+p3-poseidon = { path = "p3-utils/poseidon" }
+p3-fri = { path = "p3-utils/fri" }
+p3-rescue = { path = "p3-utils/rescue" }
+p3-blake3 = { path = "p3-utils/blake3" }
+p3-air = { path = "p3-utils/air" }
