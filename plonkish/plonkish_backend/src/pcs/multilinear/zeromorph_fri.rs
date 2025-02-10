@@ -1,9 +1,9 @@
-use crate::util::hash::Output;
-use crate::pcs::univariate::{FriCommitment,open_helper,verify_helper};
+use crate::pcs::univariate::{open_helper, verify_helper, FriCommitment};
 use crate::piop::sum_check::{
     classic::{ClassicSumCheck, CoefficientsProver},
     eq_xy_eval, SumCheck as _, VirtualPolynomial,
 };
+use crate::util::hash::Output;
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
     ParallelSlice, ParallelSliceMut,
@@ -108,14 +108,13 @@ where
         poly: &Self::Polynomial,
         comm: &Self::Commitment,
         point: &Point<F, Self::Polynomial>,
-        eval: &F,
+        f_eval: &F,
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
-
         let num_vars = poly.num_vars();
 
         if cfg!(feature = "sanity-check") {
-            assert_eq!(poly.evaluate(point), *eval);
+            assert_eq!(poly.evaluate(point), *f_eval);
         }
 
         let (quotients, remainder) = quotients(poly, point, |_, q| UnivariatePolynomial::new(q));
@@ -124,43 +123,41 @@ where
         //	println!("batch {:?} batch size {:?}", now.elapsed(),quotients.len());
 
         if cfg!(feature = "sanity-check") {
-            assert_eq!(&remainder, eval);
+            assert_eq!(&remainder, f_eval);
         }
 
-        let y = transcript.squeeze_challenge();
-
-        let q_hat = {
-            let mut q_hat = vec![F::ZERO; 1 << num_vars];
-            for (idx, (power_of_y, q)) in izip!(powers(y), &quotients).enumerate() {
-                let offset = (1 << num_vars) - (1 << idx);
-                parallelize(&mut q_hat[offset..], |(q_hat, start)| {
-                    izip!(q_hat, q.iter().skip(start))
-                        .for_each(|(q_hat, q)| *q_hat += power_of_y * q)
-                });
-            }
-            UnivariatePolynomial::new(q_hat)
-        };
-
-        Fri::<F, H>::commit_and_write(&pp.commit_pp, &q_hat, transcript)?;
-
         let x = transcript.squeeze_challenge();
-        let z = transcript.squeeze_challenge();
 
-        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(y, x, z, &point);
+        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point);
 
         let mut f = UnivariatePolynomial::new(poly.evals().to_vec());
-        f *= &z;
-        f += &q_hat;
-        f[0] += eval_scalar * eval;
-        izip!(&quotients, &q_scalars).for_each(|(q, scalar)| f += (scalar, q));
+        let f_eval_at_x = f.evaluate(&x);
 
-        assert_eq!(f.evaluate(&x), F::ZERO);
-        let comm = Fri::<F, H>::commit_and_write(&pp.commit_pp, &f, transcript);
+        if cfg!(feature = "sanity-check") {
+            let mut f_eval = UnivariatePolynomial::new(vec![eval_scalar * f_eval]);
+            izip!(&quotients, &q_scalars).for_each(|(q, scalar)| f_eval += (scalar, q));
+            assert_eq!(f_eval_at_x, f_eval.evaluate(&x));
+        }
 
-        //TODO: write queries to check later
+        let q_evals = quotients.iter().map(|q| q.evaluate(&x)).collect_vec();
+        transcript.write_field_elements(&q_evals);
 
-        Fri::<F, H>::open(&pp.commit_pp, &f, &comm.unwrap(), &x, &F::ZERO, transcript)
+        let comm = Fri::<F, H>::commit_and_write(&pp.commit_pp, &f, transcript).unwrap();
+        Fri::<F, H>::open(&pp.commit_pp, &f, &comm, &x, &f_eval_at_x, transcript)?;
 
+        Fri::<F, H>::batch_open(
+            &pp.commit_pp,
+            &quotients,
+            &comms,
+            &vec![x; quotients.len()],
+            q_evals
+                .iter()
+                .map(|q_eval| Evaluation::new(0, 0, *q_eval))
+                .collect_vec()
+                .as_slice()
+                .as_ref(),
+            transcript,
+        )
     }
 
     fn batch_open<'a>(
@@ -269,16 +266,16 @@ where
 
         //write batch queries
 
-
         let poly = g_prime;
-	
+
         let num_vars = poly.num_vars();
 
         if cfg!(feature = "sanity-check") {
             assert_eq!(poly.evaluate(&point[..]), eval);
         }
 
-        let (quotients, remainder) = quotients(&poly, &point[..], |_, q| UnivariatePolynomial::new(q));
+        let (quotients, remainder) =
+            quotients(&poly, &point[..], |_, q| UnivariatePolynomial::new(q));
         let now = Instant::now();
         let comms_fri = Fri::<F, H>::batch_commit_and_write(&pp.commit_pp, &quotients, transcript)?;
         //	println!("batch {:?} batch size {:?}", now.elapsed(),quotients.len());
@@ -287,40 +284,46 @@ where
             assert_eq!(remainder, eval);
         }
 
-        let y = transcript.squeeze_challenge();
-
-        let q_hat = {
-            let mut q_hat = vec![F::ZERO; 1 << num_vars];
-            for (idx, (power_of_y, q)) in izip!(powers(y), &quotients).enumerate() {
-                let offset = (1 << num_vars) - (1 << idx);
-                parallelize(&mut q_hat[offset..], |(q_hat, start)| {
-                    izip!(q_hat, q.iter().skip(start))
-                        .for_each(|(q_hat, q)| *q_hat += power_of_y * q)
-                });
-            }
-            UnivariatePolynomial::new(q_hat)
-        };
-
-        Fri::<F, H>::commit_and_write(&pp.commit_pp, &q_hat, transcript)?;
-
         let x = transcript.squeeze_challenge();
-        let z = transcript.squeeze_challenge();
 
-        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(y, x, z, &point[..]);
+        let q_evals = quotients.iter().map(|q| q.evaluate(&x)).collect_vec();
+        transcript.write_field_elements(&q_evals);
+        Fri::<F, H>::batch_open(
+            &pp.commit_pp,
+            &quotients,
+            &comms_fri,
+            &vec![x; quotients.len()],
+            q_evals
+                .iter()
+                .map(|q_eval| Evaluation::new(0, 0, *q_eval))
+                .collect_vec()
+                .as_slice()
+                .as_ref(),
+            transcript,
+        )?;
+
+        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
 
         let mut f = UnivariatePolynomial::new(poly.evals().to_vec());
-        f *= &z;
-        f += &q_hat;
-        f[0] += eval_scalar * eval;
-        izip!(&quotients, &q_scalars).for_each(|(q, scalar)| f += (scalar, q));
-
-        assert_eq!(f.evaluate(&x), F::ZERO);
         let comm = Fri::<F, H>::commit_and_write(&pp.commit_pp, &f, transcript);
 
-        let (res,q) =
-	    open_helper(&pp.commit_pp, &f, &comm.unwrap(), &x, &F::ZERO, transcript);
+        let f_eval_at_x = f.evaluate(&x);
+        if cfg!(feature = "sanity-check") {
+            let mut f_eval = UnivariatePolynomial::new(vec![eval_scalar * eval]);
+            izip!(&quotients, &q_scalars).for_each(|(q, scalar)| f_eval += (scalar, q));
+            assert_eq!(f_eval.evaluate(&x), f_eval_at_x);
+        }
 
-	let (queried_els, queries_usize) = q;
+        let (res, q) = open_helper(
+            &pp.commit_pp,
+            &f,
+            &comm.unwrap(),
+            &x,
+            &f_eval_at_x,
+            transcript,
+        );
+
+        let (queried_els, queries_usize) = q;
 
         let mut individual_queries: Vec<Vec<(F, F)>> = Vec::with_capacity(queries_usize.len());
 
@@ -353,10 +356,9 @@ where
             .for_each(|(h1, h2)| {
                 transcript.write_commitment(h1);
                 transcript.write_commitment(h2);
-            });	
+            });
 
-	
-	res
+        res
     }
 
     fn read_commitments(
@@ -383,19 +385,30 @@ where
         let q_hat_comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
 
         let x = transcript.squeeze_challenge();
-        let z = transcript.squeeze_challenge();
 
-        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(y, x, z, point);
+        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
 
-        //        let scalars = chain![[F::ONE, z, eval_scalar * eval], q_scalars].collect_vec();
-        //      let bases = chain![[q_hat_comm, comm.0, vp.g1()], q_comms].collect_vec();
         let comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
 
         //check consistency of all commitments vis-a-vis batch commitments
 
-        Fri::verify(&vp.vp, &comm[0], &x, &F::ZERO, transcript)
+        let q_evals = transcript.read_field_elements(num_vars).unwrap();
+        let mut f_eval_at_x = eval_scalar * eval;
+        izip!(&q_evals, &q_scalars).for_each(|(q, scalar)| f_eval_at_x += *scalar * *q);
+        Fri::verify(&vp.vp, &comm[0], &x, &f_eval_at_x, transcript)?;
 
-	
+        Fri::<F, H>::batch_verify(
+            &vp.vp,
+            &q_comms,
+            &vec![x; num_vars],
+            &q_evals
+                .iter()
+                .map(|q_eval| Evaluation::new(0, 0, *q_eval))
+                .collect_vec()
+                .as_slice()
+                .as_ref(),
+            transcript,
+        )
     }
 
     fn batch_verify<'a>(
@@ -423,31 +436,38 @@ where
             .map(|point| eq_xy_eval(&verify_point, point))
             .collect_vec();
 
-
-
-	let comm = Self::Commitment::default();
-	let point = verify_point;
-	let eval = F::ZERO;
+        let comm = Self::Commitment::default();
+        let point = verify_point;
+        let eval = g_prime_eval;
         let num_vars = point.len();
 
         let q_comms = Fri::<F, H>::read_commitments(&vp.vp, num_vars, transcript)?;
 
-        let y = transcript.squeeze_challenge();
-
-        let q_hat_comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
-
         let x = transcript.squeeze_challenge();
-        let z = transcript.squeeze_challenge();
 
-        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(y, x, z, &point);
+        let q_evals = transcript.read_field_elements(num_vars).unwrap();
+        Fri::<F, H>::batch_verify(
+            &vp.vp,
+            &q_comms,
+            &vec![x; num_vars],
+            &q_evals
+                .iter()
+                .map(|q_eval| Evaluation::new(0, 0, *q_eval))
+                .collect_vec()
+                .as_slice()
+                .as_ref(),
+            transcript,
+        )?;
+
+        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
+        let mut f_eval = eval_scalar * eval;
+        izip!(&q_evals, &q_scalars).for_each(|(q, scalar)| f_eval += *scalar * *q);
 
         //        let scalars = chain![[F::ONE, z, eval_scalar * eval], q_scalars].collect_vec();
         //      let bases = chain![[q_hat_comm, comm.0, vp.g1()], q_comms].collect_vec();
         let comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
 
-	let (v,queries_usize) = verify_helper(&vp.vp, &comm[0], &x, &F::ZERO, transcript);
-	
- 
+        let (v, queries_usize) = verify_helper(&vp.vp, &comm[0], &x, &f_eval, transcript);
 
         let mut ind_queries = Vec::with_capacity(vp.vp.num_verifier_queries);
         let mut count = 0;
@@ -478,16 +498,15 @@ where
             batch_paths.push(comms_merkle_paths);
         }
 
-
         for vq in 0..vp.vp.num_verifier_queries {
             for cq in 0..ind_queries[vq].len() {
                 let tree = &comms[evals[cq].poly].codeword_tree;
-/*
-		assert_eq!(
-                    tree[tree.len() - 1][0],
-                    batch_paths[vq][cq].pop().unwrap().pop().unwrap()
-                );
-*/
+                /*
+                        assert_eq!(
+                                    tree[tree.len() - 1][0],
+                                    batch_paths[vq][cq].pop().unwrap().pop().unwrap()
+                                );
+                */
                 authenticate_merkle_path::<H, F>(
                     &batch_paths[vq][cq],
                     (ind_queries[vq][cq][0], ind_queries[vq][cq][1]),
@@ -496,7 +515,7 @@ where
 
                 count += 1;
             }
-        }	
+        }
 
         Ok(())
     }
@@ -528,23 +547,10 @@ fn authenticate_merkle_path<H: Hash, F: PrimeField>(
         x_index >>= 1;
     }
 }
-fn eval_and_quotient_scalars<F: Field>(y: F, x: F, z: F, u: &[F]) -> (F, Vec<F>) {
+fn eval_and_quotient_scalars<F: Field>(x: F, u: &[F]) -> (F, Vec<F>) {
     let num_vars = u.len();
 
     let squares_of_x = squares(x).take(num_vars + 1).collect_vec();
-    let offsets_of_x = {
-        let mut offsets_of_x = squares_of_x
-            .iter()
-            .rev()
-            .skip(1)
-            .scan(F::ONE, |state, power_of_x| {
-                *state *= power_of_x;
-                Some(*state)
-            })
-            .collect_vec();
-        offsets_of_x.reverse();
-        offsets_of_x
-    };
     let vs = {
         let v_numer = squares_of_x[num_vars] - F::ONE;
         let mut v_denoms = squares_of_x
@@ -557,13 +563,11 @@ fn eval_and_quotient_scalars<F: Field>(y: F, x: F, z: F, u: &[F]) -> (F, Vec<F>)
             .map(|v_denom| v_numer * v_denom)
             .collect_vec()
     };
-    let q_scalars = izip!(powers(y), offsets_of_x, squares_of_x, &vs, &vs[1..], u)
-        .map(|(power_of_y, offset_of_x, square_of_x, v_i, v_j, u_i)| {
-            -(power_of_y * offset_of_x + z * (square_of_x * v_j - *u_i * v_i))
-        })
+    let q_scalars = izip!(squares_of_x, &vs, &vs[1..], u)
+        .map(|(square_of_x, v_i, v_j, u_i)| square_of_x * v_j - *u_i * v_i)
         .collect_vec();
 
-    (-vs[0] * z, q_scalars)
+    (vs[0], q_scalars)
 }
 
 #[cfg(test)]
