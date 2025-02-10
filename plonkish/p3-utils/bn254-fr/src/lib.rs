@@ -2,8 +2,6 @@
 use core::fmt::Display;
 use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
-use std::arch::aarch64::{int32x4_t, uint32x4_t};
-use std::mem::transmute;
 
 use num_bigint::BigUint;
 
@@ -17,7 +15,7 @@ use ff::{Field as FFField, PrimeField as FFPrimeField};
 pub use halo2curves::bn256::Fr as FFBn254Fr;
 use halo2curves::serde::SerdeObject;
 use p3_field::{
-    ExtensionField, Field, FieldAlgebra, FieldExtensionAlgebra, Packable, PrimeField, PrimeField32,
+    ExtensionField, Field, FieldAlgebra, FieldExtensionAlgebra, Packable, PrimeField,
     PrimeField64, TwoAdicField,
 };
 pub use poseidon2::Poseidon2Bn254;

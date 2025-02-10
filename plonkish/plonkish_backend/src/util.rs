@@ -1,15 +1,19 @@
 #![allow(warnings, unused)]
 pub mod arithmetic;
+pub mod algebra;
 pub mod code;
 pub mod expression;
 pub mod ff_255;
 pub mod goldilocksMont;
 pub mod hash;
+pub mod interpolation;
 pub mod matrix;
+pub mod merkle_tree;
 pub mod mersenne_61_mont;
 pub mod new_fields;
 pub mod parallel;
 pub mod play_field;
+pub mod query_result;
 pub mod storage;
 mod timer;
 pub mod transcript;

@@ -7,6 +7,7 @@ use crate::{
 
 mod basefold;
 mod brakedown;
+mod deepfold;
 mod gemini;
 mod hyrax;
 mod ipa;

@@ -1,5 +1,4 @@
 #![allow(clippy::op_ref)]
-#![feature(unchecked_math)]
 pub mod accumulation;
 pub mod backend;
 pub mod frontend;
@@ -18,4 +17,5 @@ pub enum Error {
     InvalidSnark(String),
     Serialization(String),
     Transcript(std::io::ErrorKind, String),
+    VerificationError(String),
 }

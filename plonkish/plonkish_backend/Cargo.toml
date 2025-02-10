@@ -11,16 +11,23 @@ halo2_curves = { git = "https://github.com/privacy-scaling-explorations/halo2cur
     "derive_serde",
 ] }
 ff = { version = "0.13.0", features = ["derive"] }
+ff-derive-num = "0.2.0"
 pasta_curves = { version = "0.5.1", features = ["serde"] }
 generic-array = { version = "0.14.7", features = ["serde"] }
 bitvec = "1.0.1"
 itertools = "0.13.0"
 num-bigint = "0.4.6"
+num-traits = "0.2"
 num-integer = "0.1.46"
 rand = "0.8.5"
 serde = { version = "1.0.152", features = ["derive"] }
 threadpool = "1.8.1"
 bincode = "1.3.3"
+blake3 = "1.3"
+once_cell = "1.19"
+rs_merkle = "1.3"
+serde_with = "3.0"
+hex = "0.4"
 sha3 = "0.10.8"
 blake2b_simd = "1.0.2"
 blake2 = { version = "0.10.6" }
