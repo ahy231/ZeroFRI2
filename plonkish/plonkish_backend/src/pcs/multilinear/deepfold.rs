@@ -142,11 +142,7 @@ impl<T: MyField + ff::Field> MultilinearPolynomial<T> {
     pub fn evaluate_hypercube(&self) -> Vec<T> {
         self.evals().to_vec()
     }
-    /// For Deepfold’s purposes we treat the coefficient representation as the same as the evaluations.
-    /// (Adjust this if your repository distinguishes these.)
-    pub fn coefficients(&self) -> Vec<T> {
-        self.evals().to_vec()
-    }
+    
 }
 
 
@@ -170,7 +166,7 @@ impl<T: MyField + ff::Field> DeepfoldProver<T> {
             total_round,
             interpolate_cosets: interpolate_cosets.clone(),
             interpolations: vec![crate::util::interpolation::InterpolateValue::new(
-                interpolate_cosets[0].fft(polynomial.coefficients()),
+                interpolate_cosets[0].fft(MultilinearPolynomial::<T>::coefficients(&polynomial)),
                 1 << step,
             )],
             hypercube_interpolation: hypercube_interpolation.clone(),
@@ -503,7 +499,9 @@ impl<T: MyField + ff::Field + Default + serde::Serialize + for<'de> serde::Deser
         transcript: &mut impl TranscriptRead<[u8; MERKLE_ROOT_SIZE], T>,
     ) -> Result<(), Error> {
         let mut verifier = DeepfoldVerifier::new(vp.total_round, &vp.interpolate_cosets, comm, transcript, vp.step);
-        let proof = read_proof(transcript)?;
+        let proof_bytes = transcript.read_commitment()?;
+        let proof: DeepfoldProof<T> = bincode::deserialize(&proof_bytes)
+            .map_err(|e| Error::VerificationError(e.to_string()))?;
         if verifier.verify(proof, transcript) {
             Ok(())
         } else {
@@ -526,7 +524,7 @@ impl<T: MyField + ff::Field + Default + serde::Serialize + for<'de> serde::Deser
     }
 }
 
-fn read_proof<T: MyField>(transcript: &mut impl TranscriptRead<[u8; MERKLE_ROOT_SIZE], T>) -> Result<DeepfoldProof<T>, Error> {
-    // For now, simply unimplemented.
-    unimplemented!()
-}
+// fn read_proof<T: MyField>(transcript: &mut impl TranscriptRead<[u8; MERKLE_ROOT_SIZE], T>) -> Result<DeepfoldProof<T>, Error> {
+//     // For now, simply unimplemented.
+//     unimplemented!()
+// }

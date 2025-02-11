@@ -12,6 +12,7 @@ mod gemini;
 mod hyrax;
 mod ipa;
 mod kzg;
+mod virgo;
 mod zeromorph;
 mod zeromorph_fri;
 pub mod zeromorph_p3fri;
