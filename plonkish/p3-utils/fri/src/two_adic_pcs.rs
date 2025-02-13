@@ -25,6 +25,8 @@ use tracing::{info_span, instrument};
 use crate::verifier::{self, FriError};
 use crate::{prover, FriConfig, FriGenericConfig, FriProof};
 
+// Note: 'Clone' and 'Copy' were derived by sec-bit to use bn254 field in FRI.
+// It is not a part of Plonky3 source code.
 #[derive(Debug, Clone, Copy)]
 pub struct TwoAdicFriPcs<Val, Dft, InputMmcs, FriMmcs> {
     dft: Dft,

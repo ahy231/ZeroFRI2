@@ -17,6 +17,9 @@ use tracing::instrument;
 ///
 /// This generally shouldn't be used directly. If you're using a Merkle tree as an MMCS,
 /// see `MerkleTreeMmcs`.
+///
+/// Note: 'Clone' and 'Copy' were derived by sec-bit to use bn254 field in FRI.
+/// It is not a part of Plonky3 source code.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MerkleTree<F, W, M, const DIGEST_ELEMS: usize> {
     pub(crate) leaves: Vec<M>,

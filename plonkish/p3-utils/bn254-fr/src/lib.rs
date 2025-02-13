@@ -15,14 +15,16 @@ use ff::{Field as FFField, PrimeField as FFPrimeField};
 pub use halo2curves::bn256::Fr as FFBn254Fr;
 use halo2curves::serde::SerdeObject;
 use p3_field::{
-    ExtensionField, Field, FieldAlgebra, FieldExtensionAlgebra, Packable, PrimeField,
-    PrimeField64, TwoAdicField,
+    ExtensionField, Field, FieldAlgebra, FieldExtensionAlgebra, Packable, PrimeField, PrimeField64,
+    TwoAdicField,
 };
 pub use poseidon2::Poseidon2Bn254;
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize};
 
+// Note: Struct FakeExtension and it's implementation was added by sec-bit to use bn254 field in FRI.
+// It is not a part of Plonky3 source code.
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct FakeExtension {
     pub value: Bn254Fr,

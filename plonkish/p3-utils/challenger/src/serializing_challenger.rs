@@ -35,6 +35,9 @@ pub struct SerializingChallenger32<F, Inner> {
 /// **Sampling**:
 /// -  Samples a field element in a prime field of size `p` by sampling uniformly an element in the
 ///    range (0..1 << log_2(p)). This avoids modulo bias.
+///
+/// Note: 'size' field was added by sec-bit to record the number of bytes observed.
+/// It is not a part of Plonky3 source code.
 #[derive(Clone, Debug)]
 pub struct SerializingChallenger64<F, Inner> {
     size: usize,
@@ -162,6 +165,8 @@ impl<F: PrimeField64, Inner: CanObserve<u8>> SerializingChallenger64<F, Inner> {
         }
     }
 
+    /// Note: 'size' method was added by sec-bit to record the number of bytes observed.
+    /// It is not a part of Plonky3 source code.
     pub fn size(&self) -> usize {
         self.size
     }
@@ -177,6 +182,8 @@ where
     }
 }
 
+// Note: these three observe methods were modified by sec-bit to record the number of bytes observed.
+// They are different from Plonky3 source code.
 impl<F: PrimeField64, Inner: CanObserve<u8>> CanObserve<F> for SerializingChallenger64<F, Inner> {
     fn observe(&mut self, value: F) {
         self.size += 1;

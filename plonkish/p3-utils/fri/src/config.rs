@@ -4,6 +4,8 @@ use core::fmt::Debug;
 use p3_field::Field;
 use p3_matrix::Matrix;
 
+// Note: 'Clone' and 'Copy' were derived by sec-bit to use bn254 field in FRI.
+// It is not a part of Plonky3 source code.
 #[derive(Debug, Clone, Copy)]
 pub struct FriConfig<M> {
     pub log_blowup: usize,
