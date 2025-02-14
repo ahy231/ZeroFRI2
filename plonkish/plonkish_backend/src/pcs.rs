@@ -10,6 +10,7 @@ use crate::{
 use rand::RngCore;
 use std::fmt::Debug;
 
+pub mod mock_pcs;
 pub mod multilinear;
 pub mod univariate;
 

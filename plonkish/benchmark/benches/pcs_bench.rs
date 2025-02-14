@@ -4,25 +4,24 @@ use itertools::{izip, Itertools};
 use num_bigint::BigInt;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_bn254_fr::{Bn254Fr, FakeExtension};
-use p3_challenger::{CanObserve, DuplexChallenger, FieldChallenger, SerializingChallenger64};
-use p3_challenger::{HashChallenger, SerializingChallenger32};
+use p3_challenger::{
+    CanObserve, DuplexChallenger, FieldChallenger, HashChallenger, SerializingChallenger32,
+    SerializingChallenger64,
+};
 use p3_circle::CirclePcs;
 use p3_commit::{ExtensionMmcs, Pcs, PolynomialSpace};
 use p3_dft::Radix2DitParallel;
-use p3_field::extension::BinomialExtensionField;
-use p3_field::{ExtensionField, Field};
+use p3_field::{extension::BinomialExtensionField, ExtensionField, Field};
 use p3_fri::{create_test_fri_config, FriConfig, TwoAdicFriPcs};
 use p3_keccak::Keccak256Hash;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_mersenne_31::Mersenne31;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32, SerializingHasher64};
-use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+use p3_symmetric::{
+    CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher32, SerializingHasher64,
+    TruncatedPermutation,
+};
 use p3_util::log2_strict_usize;
-use plonkish_backend::pcs::multilinear::{Gemini, MultilinearHyrax, Virgo};
-use plonkish_backend::pcs::univariate::UnivariateKzg;
-use plonkish_backend::util::matrix::dumper::Dumper;
-use plonkish_backend::util::matrix::{container::Field as CF, loader::Loader};
 use plonkish_backend::{
     halo2_curves::{
         bn256::{Bn256, Fr},
@@ -30,9 +29,10 @@ use plonkish_backend::{
     },
     pcs::{
         multilinear::{
-            Basefold, BasefoldExtParams, MultilinearBrakedown, MultilinearKzg, ZeromorphFri,
+            Basefold, BasefoldExtParams, Gemini, MultilinearBrakedown, MultilinearHyrax,
+            MultilinearKzg, ZeromorphFri,
         },
-        univariate::Fri,
+        univariate::{Fri, UnivariateKzg},
         PolynomialCommitmentScheme,
     },
     poly::multilinear::MultilinearPolynomial,
@@ -43,6 +43,7 @@ use plonkish_backend::{
         goldilocksMont::GoldilocksMont,
         hash::{Blake2s, Blake2s256, Keccak256},
         new_fields::Mersenne127,
+        poly_loader::{container::Field as CF, dumper::Dumper, loader::Loader},
         start_timer,
         transcript::{
             Blake2s256Transcript, Blake2sTranscript, InMemoryTranscript, Keccak256Transcript,
@@ -328,146 +329,6 @@ fn do_bench_pcs<Val, Challenge, Challenger, P>(
     assert!(verify_result.is_ok());
 }
 
-fn do_bench_pcs_from_file<Val, Challenge, Challenger, P>(
-    k: usize,
-    system: System,
-    (pcs, challenger): &(P, Challenger),
-    log_degrees_by_round: Vec<Vec<usize>>,
-    file_path: &str,
-    field: CF,
-    parse: impl Fn(&str) -> Val,
-) where
-    P: Pcs<Challenge, Challenger>,
-    P::Domain: PolynomialSpace<Val = Val>,
-    Val: Field,
-    Standard: Distribution<Val>,
-    Challenge: ExtensionField<Val>,
-    Challenger: Clone + CanObserve<P::Commitment> + FieldChallenger<Val>,
-{
-    let num_rounds = log_degrees_by_round.len();
-
-    let mut p_challenger = challenger.clone();
-    let sample_size = sample_size(k);
-
-    let loader = Loader::new(field);
-    let multi_mtx = loader.load(file_path, parse);
-
-    let _timer = start_timer(|| format!("PCS setup -{k}"));
-
-    let mut commit_times = Vec::new();
-    let mut domains_and_polys_by_round = Vec::new();
-    for _ in 0..sample_size {
-        let start = Instant::now();
-        domains_and_polys_by_round = log_degrees_by_round
-            .iter()
-            .map(|log_degrees| {
-                log_degrees
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &log_degree)| {
-                        let d = 1 << log_degree;
-                        // random width 5-15
-                        // let width = 5 + rng.gen_range(0..=10);
-                        (pcs.natural_domain_for_degree(d), multi_mtx[i].clone())
-                    })
-                    .collect_vec()
-            })
-            .collect_vec();
-        commit_times.push(start.elapsed());
-    }
-    let sum = commit_times.iter().sum::<Duration>();
-    let avg = sum / sample_size as u32;
-    writeln!(&mut system.commit_output(), "{k}, {}", avg.as_millis()).unwrap();
-    println!(
-        "Commit time for {:?}, k = {k} is {} ms",
-        system,
-        avg.as_millis()
-    );
-
-    // Start timing for commit phase
-    let _timer = start_timer(|| format!("commit -{k}"));
-
-    let (commits_by_round, data_by_round): (Vec<_>, Vec<_>) = domains_and_polys_by_round
-        .iter()
-        .map(|domains_and_polys| pcs.commit(domains_and_polys.clone()))
-        .unzip();
-
-    // Start timing for prove phase
-    let _timer = start_timer(|| format!("prove -{k}"));
-
-    assert_eq!(commits_by_round.len(), num_rounds);
-    assert_eq!(data_by_round.len(), num_rounds);
-    p_challenger.observe_slice(&commits_by_round);
-
-    let zeta: Challenge = p_challenger.sample_ext_element();
-
-    let points_by_round = log_degrees_by_round
-        .iter()
-        .map(|log_degrees| vec![vec![zeta]; log_degrees.len()])
-        .collect_vec();
-    let data_and_points: Vec<_> = data_by_round.iter().zip(points_by_round).collect();
-    let (opening_by_round, proof) = sample(system, k, || {
-        pcs.open(data_and_points.clone(), &mut p_challenger.clone())
-    });
-    assert_eq!(opening_by_round.len(), num_rounds);
-
-    // Start timing for verify phase
-    let timer = start_timer(|| format!("verify -{k}"));
-
-    // Verify the proof
-    let mut v_challenger = challenger.clone();
-    v_challenger.observe_slice(&commits_by_round);
-    let verifier_zeta: Challenge = v_challenger.sample_ext_element();
-    assert_eq!(verifier_zeta, zeta);
-
-    let commits_and_claims_by_round = izip!(
-        commits_by_round,
-        domains_and_polys_by_round,
-        opening_by_round
-    )
-    .map(|(commit, domains_and_polys, openings)| {
-        let claims = domains_and_polys
-            .iter()
-            .zip(openings)
-            .map(|((domain, _), mat_openings)| (*domain, vec![(zeta, mat_openings[0].clone())]))
-            .collect_vec();
-        (commit, claims)
-    })
-    .collect_vec();
-
-    assert_eq!(commits_and_claims_by_round.len(), num_rounds);
-
-    let now = Instant::now();
-    let verify_result = pcs.verify(commits_and_claims_by_round, &proof, &mut v_challenger);
-    writeln!(
-        &mut system.verify_output(),
-        "{:?}: {:?}",
-        k,
-        now.elapsed().as_millis()
-    )
-    .unwrap();
-
-    end_timer(timer);
-
-    // Calculate proof size
-    let mut proof_vec = Vec::new();
-    proof
-        .serialize(&mut serde_json::Serializer::new(&mut proof_vec))
-        .unwrap();
-    let proof_size = proof_vec.len();
-    // Log the results
-    writeln!(
-        &mut system.size_output(),
-        "{:?} {:?} : {:?}",
-        system,
-        k,
-        proof_size
-    )
-    .unwrap();
-
-    assert!(verify_result.is_ok());
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum System {
     MultilinearKzg,
@@ -480,7 +341,6 @@ enum System {
     Fri,
     Circle,
     BigFieldFri,
-    FriFromFile,
     Gemini,
     Hyrax,
 }
@@ -498,7 +358,6 @@ impl System {
             System::Fri,
             System::Circle,
             System::BigFieldFri,
-            System::FriFromFile,
             System::Gemini,
             System::Hyrax,
         ]
@@ -551,7 +410,7 @@ impl System {
     fn bench(&self, k: usize, repetition: usize, rounds: usize) {
         type Kzg = MultilinearKzg<Bn256>;
         type Brakedown = MultilinearBrakedown<Fp, Keccak256, BrakedownSpec6>;
-        type Brakedown127 = MultilinearBrakedown<Fp, Blake2s, BrakedownSpec6>;
+        // type Brakedown127 = MultilinearBrakedown<Fp, Blake2s, BrakedownSpec6>;
         type BrakedownBlake2s = MultilinearBrakedown<GoldilocksMont, Blake2s, BrakedownSpec1>;
 
         match self {
@@ -802,96 +661,6 @@ impl System {
                     vec![vec![k; repetition]; rounds],
                 );
             }
-            System::FriFromFile => {
-                // store matrix in file in big endian order
-                let mut rng = thread_rng();
-
-                let matrix_num = 2;
-                let matrix_widths = vec![2, 3];
-                let heights = vec![16, 8];
-                let multi_polys = (0..matrix_num)
-                    .map(|i| {
-                        (0..matrix_widths[i])
-                            .map(|_| {
-                                (0..heights[i])
-                                    .map(|_| BabyBear::new(rng.gen::<u32>()))
-                                    .collect_vec()
-                            })
-                            .collect_vec()
-                    })
-                    .collect();
-
-                let dumper = Dumper::new(CF::Babybear);
-                let file_name = "bench_data/p3_pcs_input/fri_babybear_from_file.json";
-                dumper.dump(&multi_polys, file_name, |x: &BabyBear| {
-                    let x = x.clone().to_string();
-                    let buf = x.as_bytes();
-                    let num = BigInt::parse_bytes(buf, 10).unwrap();
-                    let hex = num
-                        .to_radix_be(16)
-                        .1
-                        .iter()
-                        .map(|e| format!("{:x}", e))
-                        .collect::<Vec<_>>()
-                        .join("");
-                    format!("{:0>8}", hex)
-                });
-
-                type Val = BabyBear;
-                type Challenge = BinomialExtensionField<Val, 4>;
-
-                type Perm = Poseidon2BabyBear<16>;
-                type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
-                type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
-
-                type ValMmcs = MerkleTreeMmcs<
-                    <Val as Field>::Packing,
-                    <Val as Field>::Packing,
-                    MyHash,
-                    MyCompress,
-                    8,
-                >;
-                type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
-
-                type Dft = Radix2DitParallel<Val>;
-                type Challenger = DuplexChallenger<Val, Perm, 16, 8>;
-
-                let log_blowup = 4;
-
-                let perm = Perm::new_from_rng_128(&mut OsRng::default());
-                let hash = MyHash::new(perm.clone());
-                let compress = MyCompress::new(perm.clone());
-
-                let val_mmcs = ValMmcs::new(hash, compress);
-                let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
-
-                let fri_config = FriConfig {
-                    log_blowup,
-                    log_final_poly_len: 0,
-                    num_queries: 10,
-                    proof_of_work_bits: 8,
-                    mmcs: challenge_mmcs,
-                };
-
-                let pcs = TwoAdicFriPcs::<Val, Dft, ValMmcs, ChallengeMmcs>::new(
-                    Dft::default(),
-                    val_mmcs,
-                    fri_config,
-                );
-
-                let log_degrees_by_round =
-                    vec![heights.iter().map(|h| log2_strict_usize(*h)).collect()];
-
-                do_bench_pcs_from_file(
-                    k,
-                    System::FriFromFile,
-                    &(pcs, Challenger::new(perm.clone())),
-                    log_degrees_by_round,
-                    file_name,
-                    CF::Babybear,
-                    |s| BabyBear::new(u32::from_str_radix(s, 16).unwrap()),
-                );
-            }
             System::Gemini => {
                 bench_pcs::<Fr, Gemini<UnivariateKzg<Bn256>>, Blake2sTranscript<_>>(
                     k,
@@ -918,7 +687,6 @@ impl Display for System {
             System::Fri => write!(f, "fri"),
             System::Circle => write!(f, "circle"),
             System::BigFieldFri => write!(f, "bigfield_fri"),
-            System::FriFromFile => write!(f, "fri_from_file"),
             System::Gemini => write!(f, "gemini"),
             System::Hyrax => write!(f, "hyrax"),
         }
