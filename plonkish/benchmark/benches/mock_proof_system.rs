@@ -31,7 +31,7 @@ use plonkish_backend::{
         secp256k1::Fp,
     },
     pcs::{
-        mock_pcs::{MockPcs, FIELD as MF},
+        mock_pcs::{MockPcs, CONTAINER, FIELD as MF},
         // Possibly two different FRI implementations (multilinear vs. univariate).
         multilinear::Gemini,
         univariate::UnivariateKzg,
@@ -41,7 +41,7 @@ use plonkish_backend::{
         end_timer,
         goldilocksMont::GoldilocksMont, // Possibly a specialized field / curves.
         hash::{Blake2s, Blake2s256},    // Additional hashing utilities.
-        poly_loader::container::Field as CF,
+        poly_loader::{container::Field as CF, dumper::Dumper},
         start_timer,   // Timer utilities for measuring performance.
         test::std_rng, // A standard RNG for testing.
         transcript::{Blake2sTranscript, InMemoryTranscript, MockTranscript}, // Transcript types for non-interactive proofs.
@@ -115,6 +115,11 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
         let proof = transcript.into_proof();
         proof
     });
+
+    unsafe {
+        let dumper = Dumper::new(CF::Bn254Fr);
+        dumper.dump(&CONTAINER.clone().unwrap(), "mock_data.json");
+    }
 
     // // 11) Proof size in bits (assuming each byte is 8 bits).
     // let size = proof.len() * 8;

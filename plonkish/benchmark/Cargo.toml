@@ -95,7 +95,7 @@ timer = [
 # name = "p3_proof_system"
 # harness = false
 [[bench]]
-name = "mock_pcs_proof_system"
+name = "mock_proof_system"
 harness = false
 # 
 # [[bin]]
