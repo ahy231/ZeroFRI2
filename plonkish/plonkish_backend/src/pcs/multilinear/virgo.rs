@@ -1,4 +1,3 @@
-
 use crate::{
     Error,
     pcs::{Point, PolynomialCommitmentScheme, Evaluation},
