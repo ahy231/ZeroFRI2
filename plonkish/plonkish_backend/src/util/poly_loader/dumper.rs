@@ -1,17 +1,14 @@
 use serde_json::to_string;
 use std::fs::File;
 use std::io::Write;
-use std::marker::PhantomData;
 
-use crate::util::poly_loader::container::{Field, MatrixContainer};
+use crate::util::poly_loader::container::MatrixContainer;
 
-pub struct Dumper {
-    pub field: Field,
-}
+pub struct Dumper;
 
 impl Dumper {
-    pub fn new(field: Field) -> Self {
-        Self { field }
+    pub fn new() -> Self {
+        Self {}
     }
 
     pub fn dump(&self, container: &MatrixContainer, file_path: &str) {
@@ -29,6 +26,7 @@ mod test {
 
     use super::*;
 
+    use crate::util::poly_loader::container::Field;
     use num_bigint::BigInt;
     use p3_baby_bear::BabyBear;
     use p3_bn254_fr::Bn254Fr;
@@ -38,7 +36,7 @@ mod test {
     #[test]
     fn babybear_dump() {
         let mut rng = thread_rng();
-        let dumper = Dumper::new(Field::Babybear);
+        let dumper = Dumper::new();
         let matrix_num = 2;
         let widths = vec![2, 3];
         let heights = vec![16, 8];
@@ -53,16 +51,11 @@ mod test {
                     .collect()
             })
             .collect();
-        let container = MatrixContainer::new(
-            multi_polys.len(),
-            multi_polys[0].len(),
-            Field::Babybear,
-            1,
-            vec![matrix_num],
-            vec![widths],
-            multi_polys,
-            HashMap::new(),
-        );
+        let mut container =
+            MatrixContainer::new(multi_polys.len(), multi_polys[0].len(), Field::Babybear);
+        container.new_round();
+        container.push_matrix(multi_polys[0].clone());
+        container.push_matrix(multi_polys[1].clone());
         dumper.dump(&container, "test.json");
     }
 }

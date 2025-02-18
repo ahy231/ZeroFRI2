@@ -104,12 +104,8 @@ where
                 poly_size,
                 batch_size,
                 FIELD.unwrap().clone(),
-                1,
-                vec![0],
-                vec![vec![]],
-                vec![vec![]],
-                HashMap::new(),
             ));
+            CONTAINER.as_mut().unwrap().new_round();
         }
 
         Ok(MockParams {
@@ -171,7 +167,7 @@ where
             CONTAINER
                 .as_mut()
                 .unwrap()
-                .matrix_points
+                .poly_points
                 .entry(format!("{:?}", poly))
                 .or_insert(vec![])
                 .push(format!("{:?}", point));

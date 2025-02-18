@@ -69,7 +69,7 @@ const OUTPUT_DIR: &str = "./bench_data/mock";
 /// 3) For each k in the range, run each system's benchmark with the chosen circuit.
 fn main() {
     unsafe {
-        MF = Some(CF::Babybear);
+        MF = Some(CF::Bn254Fr);
     }
     let (systems, circuit, k_range) = parse_args(); // (1) parse CLI args
     create_output(&systems); // (2) ensure we have output files/folders
@@ -117,7 +117,7 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     });
 
     unsafe {
-        let dumper = Dumper::new(CF::Bn254Fr);
+        let dumper = Dumper::new();
         dumper.dump(&CONTAINER.clone().unwrap(), "mock_data.json");
     }
 
