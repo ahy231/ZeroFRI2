@@ -18,7 +18,6 @@ use crate::{
         end_timer,
         expression::Expression,
         start_timer,
-        storage::STORAGE,
         transcript::{TranscriptRead, TranscriptWrite},
         Deserialize, DeserializeOwned, Itertools, Serialize,
     },
@@ -106,6 +105,8 @@ where
         let num_vars = circuit_info.k;
         let poly_size = 1 << num_vars;
         let batch_size = batch_size(circuit_info);
+        // ZNH: https://github.com/hadasz/plonkish_basefold/blob/main/plonkish/plonkish_backend/src/pcs/multilinear/basefold.rs#L243
+        //      将 param 拆成 prover param 和 verifier param
         let (pcs_pp, pcs_vp) = Pcs::trim(param, poly_size, batch_size)?;
 
         // Compute preprocesses comms
@@ -119,6 +120,7 @@ where
         let preprocess_comms = Pcs::batch_commit(&pcs_pp, &preprocess_polys)?;
 
         // Compute permutation polys and comms
+        // ZNH: 计算 sigma(x)
         let permutation_polys = permutation_polys(
             num_vars,
             &circuit_info.permutation_polys(),
@@ -171,24 +173,16 @@ where
         transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
         _: impl RngCore,
     ) -> Result<(), Error> {
-        let mut size_counter = 0;
-
         let instance_polys = {
             let instances = circuit.instances();
             for (num_instances, instances) in pp.num_instances.iter().zip_eq(instances) {
                 assert_eq!(instances.len(), *num_instances);
                 for instance in instances.iter() {
                     transcript.common_field_element(instance)?;
-                    size_counter += 32;
                 }
             }
             instance_polys(pp.num_vars, instances)
         };
-
-        if unsafe { STORAGE.recording } {
-            let mut proof_size = unsafe { STORAGE.proof_size.lock().unwrap() };
-            *proof_size += size_counter;
-        }
 
         // Round 0..n
 

@@ -3,7 +3,7 @@ use halo2_proofs::halo2curves::bn256::G1Affine;
 use itertools::{izip, Itertools};
 use num_bigint::BigInt;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_bn254_fr::{Bn254Fr, FakeExtension};
+use p3_bn254_fr::Bn254Fr;
 use p3_challenger::{
     CanObserve, DuplexChallenger, FieldChallenger, HashChallenger, SerializingChallenger32,
     SerializingChallenger64,
@@ -340,7 +340,6 @@ enum System {
     ZeromorphFri,
     Fri,
     Circle,
-    BigFieldFri,
     Gemini,
     Hyrax,
 }
@@ -357,7 +356,6 @@ impl System {
             System::ZeromorphFri,
             System::Fri,
             System::Circle,
-            System::BigFieldFri,
             System::Gemini,
             System::Hyrax,
         ]
@@ -616,51 +614,6 @@ impl System {
                     vec![vec![k; repetition]; rounds],
                 );
             }
-            System::BigFieldFri => {
-                type Val = Bn254Fr;
-                type Challenge = FakeExtension;
-
-                type ByteHash = Keccak256Hash;
-                type FieldHash = SerializingHasher64<ByteHash>;
-
-                type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-
-                type ValMmcs = MerkleTreeMmcs<Val, u8, FieldHash, MyCompress, 32>;
-
-                type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
-
-                type Challenger = SerializingChallenger64<Val, HashChallenger<u8, ByteHash, 32>>;
-
-                type Dft = Radix2DitParallel<Val>;
-
-                type MyPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
-
-                let log_blowup = 4;
-
-                let byte_hash = ByteHash {};
-                let field_hash = FieldHash::new(byte_hash);
-                let compress = MyCompress::new(byte_hash);
-
-                let val_mmcs = ValMmcs::new(field_hash, compress);
-                let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
-
-                let fri_config = FriConfig {
-                    log_blowup,
-                    log_final_poly_len: 0,
-                    num_queries: 10,
-                    proof_of_work_bits: 8,
-                    mmcs: challenge_mmcs,
-                };
-
-                let pcs = MyPcs::new(Dft::default(), val_mmcs, fri_config);
-
-                do_bench_pcs(
-                    k,
-                    System::BigFieldFri,
-                    &(pcs, Challenger::from_hasher(vec![], byte_hash)),
-                    vec![vec![k; repetition]; rounds],
-                );
-            }
             System::Gemini => {
                 bench_pcs::<Fr, Gemini<UnivariateKzg<Bn256>>, Blake2sTranscript<_>>(
                     k,
@@ -686,7 +639,6 @@ impl Display for System {
             System::ZeromorphFri => write!(f, "zeromorph_fri"),
             System::Fri => write!(f, "fri"),
             System::Circle => write!(f, "circle"),
-            System::BigFieldFri => write!(f, "bigfield_fri"),
             System::Gemini => write!(f, "gemini"),
             System::Hyrax => write!(f, "hyrax"),
         }

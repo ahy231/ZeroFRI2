@@ -1,37 +1,5 @@
 [workspace]
-members = [
-    "bench-cli",
-    "benchmark",
-    "plonkish_backend",
-    "p3-utils",
-    "p3-utils/air",
-    "p3-utils/field",
-    "p3-utils/mds",
-    "p3-utils/monty-31",
-    "p3-utils/poseidon2",
-    "p3-utils/symmetric",
-    "p3-utils/challenger",
-    "p3-utils/commit",
-    "p3-utils/dft",
-    "p3-utils/interpolation",
-    "p3-utils/matrix",
-    "p3-utils/maybe-rayon",
-    "p3-utils/util",
-    "p3-utils/bn254-fr",
-    "p3-utils/field-testing",
-    "p3-utils/baby-bear",
-    "p3-utils/circle",
-    "p3-utils/goldilocks",
-    "p3-utils/keccak",
-    "p3-utils/mersenne-31",
-    "p3-utils/merkle-tree",
-    "p3-utils/koala-bear",
-    "p3-utils/poseidon",
-    "p3-utils/fri",
-    "p3-utils/rescue",
-    "p3-utils/blake3",
-    
-]
+members = ["bench-cli", "benchmark", "plonkish_backend"]
 
 [profile.flamegraph]
 inherits = "release"
@@ -69,31 +37,3 @@ num = "0.4.3"
 sha3 = "0.11.0-pre.4"
 modinverse = "0.1.1"
 zkhash = { git = "https://github.com/HorizenLabs/poseidon2" }
-
-# Local crates referenced with workspace=true
-p3-field = { path = "p3-utils/field" }
-p3-mds = { path = "p3-utils/mds" }
-p3-monty-31 = { path = "p3-utils/monty-31" }
-p3-poseidon2 = { path = "p3-utils/poseidon2" }
-p3-symmetric = { path = "p3-utils/symmetric" }
-p3-challenger = { path = "p3-utils/challenger" }
-p3-commit = { path = "p3-utils/commit" }
-p3-dft = { path = "p3-utils/dft" }
-p3-interpolation = { path = "p3-utils/interpolation" }
-p3-matrix = { path = "p3-utils/matrix" }
-p3-maybe-rayon = { path = "p3-utils/maybe-rayon" }
-p3-util = { path = "p3-utils/util" }
-p3-bn254-fr = { path = "p3-utils/bn254-fr" }
-p3-field-testing = { path = "p3-utils/field-testing" }
-p3-baby-bear = { path = "p3-utils/baby-bear" }
-p3-circle = { path = "p3-utils/circle" }
-p3-goldilocks = { path = "p3-utils/goldilocks" }
-p3-keccak = { path = "p3-utils/keccak" }
-p3-mersenne-31 = { path = "p3-utils/mersenne-31" }
-p3-merkle-tree = { path = "p3-utils/merkle-tree" }
-p3-koala-bear = { path = "p3-utils/koala-bear" }
-p3-poseidon = { path = "p3-utils/poseidon" }
-p3-fri = { path = "p3-utils/fri" }
-p3-rescue = { path = "p3-utils/rescue" }
-p3-blake3 = { path = "p3-utils/blake3" }
-p3-air = { path = "p3-utils/air" }

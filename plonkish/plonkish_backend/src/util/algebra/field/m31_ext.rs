@@ -1,6 +1,9 @@
+use std::marker::PhantomData;
+
 use once_cell::sync::OnceCell;
 use p3_field::{
-    extension::Complex, Field, FieldAlgebra, FieldExtensionAlgebra, PrimeField32, TwoAdicField
+    extension::{BinomialExtensionField, Complex},
+    Field, PackedValue, PrimeCharacteristicRing, PrimeField32, TwoAdicField,
 };
 use rand::Rng;
 
@@ -83,7 +86,7 @@ impl MyField for M31ext {
 
     #[inline]
     fn from_int(x: u64) -> Self {
-        Self(F::from_canonical_u64(x))
+        Self(F::from_u64(x))
     }
 
     #[inline]
@@ -100,7 +103,18 @@ impl MyField for M31ext {
     #[inline]
     fn random_element() -> Self {
         let mut rng = rand::thread_rng();
-        Self(rng.gen::<F>())
+        let real = rng.gen::<u32>();
+        let imag = rng.gen::<u32>();
+        Self(BinomialExtensionField::new_complex(
+            Complex::new_complex(
+                p3_mersenne_31::Mersenne31::new(real),
+                p3_mersenne_31::Mersenne31::new(imag),
+            ),
+            Complex::new_complex(
+                p3_mersenne_31::Mersenne31::new(real),
+                p3_mersenne_31::Mersenne31::new(imag),
+            ),
+        ))
     }
     #[inline(always)]
     fn inverse(&self) -> Self {
@@ -109,14 +123,17 @@ impl MyField for M31ext {
 
     #[inline]
     fn to_bytes(&self) -> Vec<u8> {
-        let s: &[Complex<p3_mersenne_31::Mersenne31>] = self.0.as_base_slice();
+        let s = self.0.as_slice();
         s.iter()
             .flat_map(|x| {
                 x.real()
+                    .real()
                     .as_canonical_u32()
                     .to_be_bytes()
                     .into_iter()
-                    .chain(x.imag().as_canonical_u32().to_be_bytes().into_iter())
+                    .chain(x.real().imag().as_canonical_u32().to_be_bytes().into_iter())
+                    .chain(x.imag().real().as_canonical_u32().to_be_bytes().into_iter())
+                    .chain(x.imag().imag().as_canonical_u32().to_be_bytes().into_iter())
                     .collect::<Vec<_>>()
             })
             .collect()
