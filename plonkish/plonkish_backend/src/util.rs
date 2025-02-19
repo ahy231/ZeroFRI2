@@ -14,6 +14,8 @@ pub mod parallel;
 pub mod play_field;
 pub mod poly_loader;
 pub mod query_result;
+pub mod random_oracle;
+pub mod storage;
 mod timer;
 pub mod transcript;
 pub use itertools::{chain, izip, Itertools};

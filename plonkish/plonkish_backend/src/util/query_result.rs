@@ -1,14 +1,14 @@
 use crate::util::algebra::field::{as_bytes_vec, MyField};
 use crate::util::merkle_tree::MerkleTreeVerifier;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult<T: MyField> {
     pub proof_bytes: Vec<u8>,
     // Cauchy: Why use hashmap rather than Vec here?
-    pub proof_values: HashMap<usize, T>, 
+    pub proof_values: HashMap<usize, T>,
 }
 
 impl<T: MyField> QueryResult<T> {

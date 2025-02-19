@@ -295,7 +295,8 @@ version = "0.1.0"
 dependencies = [
  "ark-bn254",
  "ark-ff",
- "ff",
+ "criterion 0.5.1",
+ "ff 0.13.0",
  "gnuplot",
  "halo2_gadgets",
  "halo2_proofs",
@@ -2309,6 +2310,7 @@ dependencies = [
  "blake3",
  "criterion",
  "crossbeam",
+ "csv",
  "ctr",
  "ff",
  "ff-derive-num",
