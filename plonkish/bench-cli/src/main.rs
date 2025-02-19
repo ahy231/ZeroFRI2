@@ -15,6 +15,8 @@ fn main() -> io::Result<()> {
         "hyrax_proof_system",
         "plonky3_pcs_bench",
         "p3_proof_system",
+        "deepfold_proof_system",
+        "virgo_proof_system",
     ];
 
     // Prompt the user to select a proof system bench.

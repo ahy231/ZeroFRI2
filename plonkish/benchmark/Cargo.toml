@@ -9,6 +9,7 @@ itertools = "0.10.5"
 gnuplot = "0.0.37"
 rayon = "1.5.3"
 prettytable = "0.10"
+criterion = "0.5"
 
 # plonkish_backend
 plonkish_backend = { path = "../plonkish_backend", features = ["benchmark"] }
@@ -94,9 +95,15 @@ timer = [
 # [[bench]]
 # name = "p3_proof_system"
 # harness = false
-[[bench]]
-name = "mock_proof_system"
-harness = false
+# [[bench]]
+# name = "deepfold_proof_system"
+# harness = false
+# [[bench]]
+# name = "virgo_proof_system"
+# harness = false
+# [[bench]]
+# name = "mock_proof_system"
+# harness = false
 # 
 # [[bin]]
 # name = "plotter"

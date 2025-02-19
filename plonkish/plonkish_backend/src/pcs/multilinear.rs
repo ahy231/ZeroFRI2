@@ -7,15 +7,15 @@ use crate::{
 
 mod basefold;
 mod brakedown;
-mod deepfold;
 mod gemini;
 mod hyrax;
 mod ipa;
 mod kzg;
-mod virgo;
 mod zeromorph;
 mod zeromorph_fri;
 pub mod zeromorph_p3fri;
+pub mod deepfold;
+pub mod virgo;
 pub use basefold::{
     evaluate_over_foldable_domain, interpolate_over_boolean_hypercube_with_copy, Basefold,
     BasefoldCommitment, BasefoldExtParams, BasefoldParams, BasefoldProverParams,
