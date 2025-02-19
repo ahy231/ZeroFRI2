@@ -1,4 +1,3 @@
-// File: mle-pcs-benchmark/benchmark/benches/deepfold_proof_system.rs
 
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufWriter, Write};
