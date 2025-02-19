@@ -4,7 +4,7 @@ use std::io::{BufWriter, Write};
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
-use plonkish_backend::pcs::multilinear::virgo::{prover::FriProver, verifier::FriVerifier};
+use plonkish_backend::pcs::multilinear::combined_virgo::{FriProver, FriVerifier};
 use plonkish_backend::util::{
     algebra::{
         coset::Coset,

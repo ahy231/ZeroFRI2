@@ -1,10 +1,9 @@
-
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
-use plonkish_backend::pcs::multilinear::deepfold::{prover::Prover, verifier::Verifier, Proof};
+use plonkish_backend::pcs::multilinear::combined_deepfold::{Proof, Prover, Verifier};
 use plonkish_backend::util::{
     algebra::{
         coset::Coset,
@@ -100,7 +99,12 @@ fn sample<T>(label: &str, system: System, k: usize, bench: impl Fn() -> T) -> T 
     let mut out = system.output();
     writeln!(&mut out, "{}", avg.as_millis()).unwrap();
     out.flush().unwrap();
-    println!("Deepfold {}: k = {}, avg = {} ms", label, k, avg.as_millis());
+    println!(
+        "Deepfold {}: k = {}, avg = {} ms",
+        label,
+        k,
+        avg.as_millis()
+    );
     result.unwrap()
 }
 
@@ -118,7 +122,12 @@ fn verifier_sample<T>(label: &str, system: System, k: usize, bench: impl Fn() ->
     let mut out = system.verifier_output();
     writeln!(&mut out, "{}", avg.as_millis()).unwrap();
     out.flush().unwrap();
-    println!("Deepfold {}: k = {}, avg = {} ms", label, k, avg.as_millis());
+    println!(
+        "Deepfold {}: k = {}, avg = {} ms",
+        label,
+        k,
+        avg.as_millis()
+    );
     result.unwrap()
 }
 
@@ -159,7 +168,10 @@ fn bench_commit(system: System, variable_num: usize) {
 
 /// Benchmark the open phase: generate a proof by opening the commitment.
 /// Returns a tuple of (proof, verifier) so that the same parameters can be used for verification.
-fn bench_open(system: System, variable_num: usize) -> (Proof<Mersenne61Ext>, Verifier<Mersenne61Ext>) {
+fn bench_open(
+    system: System,
+    variable_num: usize,
+) -> (Proof<Mersenne61Ext>, Verifier<Mersenne61Ext>) {
     let polynomial = MultilinearPolynomial::random_polynomial(variable_num);
     let mut interpolate_cosets = vec![Coset::new(
         1 << (variable_num + CODE_RATE),
@@ -174,12 +186,19 @@ fn bench_open(system: System, variable_num: usize) -> (Proof<Mersenne61Ext>, Ver
     let verifier = Verifier::new(variable_num, &interpolate_cosets, commit, &oracle, STEP);
     let point = verifier.get_open_point();
     // Log open (proof generation) time with label "open"
-    let proof = sample("open", system, variable_num, || prover.clone().generate_proof(point.clone()));
+    let proof = sample("open", system, variable_num, || {
+        prover.clone().generate_proof(point.clone())
+    });
     (proof, verifier)
 }
 
 /// Benchmark the verification phase: verify the generated proof using the verifier constructed during the open phase.
-fn bench_verify(system: System, variable_num: usize, proof: &Proof<Mersenne61Ext>, verifier: &Verifier<Mersenne61Ext>) {
+fn bench_verify(
+    system: System,
+    variable_num: usize,
+    proof: &Proof<Mersenne61Ext>,
+    verifier: &Verifier<Mersenne61Ext>,
+) {
     verifier_sample("verify", system, variable_num, || {
         assert!(verifier.clone().verify(proof.clone()));
     });
@@ -191,7 +210,10 @@ fn bench_size(system: System, variable_num: usize, proof: &Proof<Mersenne61Ext>)
     let mut out = system.size_output();
     writeln!(&mut out, "{}", size).unwrap();
     out.flush().unwrap();
-    println!("Deepfold proof size: k = {}, size = {} bits", variable_num, size);
+    println!(
+        "Deepfold proof size: k = {}, size = {} bits",
+        variable_num, size
+    );
 }
 
 /// Main entry point: create output files, then for each k value, run all deepfold benchmarks.
