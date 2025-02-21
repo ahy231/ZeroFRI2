@@ -1,11 +1,12 @@
 use crate::poly::multilinear::MultilinearPolynomial;
 use crate::poly::Polynomial;
-use crate::util::poly_loader::container::{self, MatrixContainer};
+use crate::util::hash::Blake2s;
+use crate::util::poly_loader::container::MatrixContainer;
 use crate::{
     pcs::{AdditiveCommitment, Evaluation, Point, PolynomialCommitmentScheme},
     util::{
         arithmetic::PrimeField,
-        hash::{Hash, Output},
+        hash::Hash,
         poly_loader::container::Field as CF,
         transcript::{TranscriptRead, TranscriptWrite},
         DeserializeOwned, Itertools, Serialize,
@@ -16,10 +17,10 @@ use crate::{
 use itertools::izip;
 use rand_chacha::rand_core::RngCore;
 use serde::Deserialize;
+use serde_json::to_string;
+use sha2::digest::{Output, OutputSizeUser};
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::ops::Mul;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MockParams<F: PrimeField> {
@@ -43,6 +44,12 @@ pub struct MockCommitment<F: PrimeField, H: Hash> {
     pub poly: MultilinearPolynomial<F>,
 }
 
+impl<F: PrimeField, H: Hash> AsRef<[Output<Blake2s>]> for MockCommitment<F, H> {
+    fn as_ref(&self) -> &[Output<Blake2s>] {
+        &[]
+    }
+}
+
 impl<F: PrimeField, H: Hash> PartialEq for MockCommitment<F, H> {
     fn eq(&self, other: &Self) -> bool {
         true
@@ -51,6 +58,13 @@ impl<F: PrimeField, H: Hash> PartialEq for MockCommitment<F, H> {
 
 pub static mut FIELD: Option<CF> = None;
 pub static mut CONTAINER: Option<MatrixContainer> = None;
+pub static mut PCS_RECORDER: Option<Vec<(PcsOps, usize)>> = None;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PcsOps {
+    Commit,
+    Open,
+}
 
 impl<F: PrimeField, H: Hash> Eq for MockCommitment<F, H> {}
 #[derive(Debug)]
@@ -136,6 +150,7 @@ where
                 .into_iter()
                 .map(|f| format!("{:?}", f))
                 .collect_vec()]);
+            PCS_RECORDER.as_mut().unwrap().push((PcsOps::Commit, 1));
         }
 
         Ok(Self::Commitment {
@@ -148,11 +163,33 @@ where
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
     ) -> Result<Vec<Self::Commitment>, Error> {
-        let mut res = vec![];
-        for poly in polys {
-            res.push(MockPcs::<F, H>::commit(pp, poly).unwrap());
+        let polys = polys.into_iter().collect_vec();
+        unsafe {
+            CONTAINER.as_mut().unwrap().push_matrix(
+                polys
+                    .clone()
+                    .into_iter()
+                    .map(|p| {
+                        p.clone()
+                            .into_evals()
+                            .into_iter()
+                            .map(|f| format!("{:?}", f))
+                            .collect_vec()
+                    })
+                    .collect_vec(),
+            );
+            PCS_RECORDER
+                .as_mut()
+                .unwrap()
+                .push((PcsOps::Commit, polys.len()));
         }
-        Ok(res)
+        Ok(polys
+            .into_iter()
+            .map(|p| Self::Commitment {
+                phantom: PhantomData,
+                poly: p.clone(),
+            })
+            .collect_vec())
     }
 
     fn open(
@@ -164,13 +201,16 @@ where
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
         unsafe {
-            CONTAINER
-                .as_mut()
-                .unwrap()
-                .poly_points
-                .entry(format!("{:?}", poly))
-                .or_insert(vec![])
-                .push(format!("{:?}", point));
+            CONTAINER.as_mut().unwrap().poly_points.push((
+                serde_json::to_string(&poly).unwrap(),
+                point
+                    .clone()
+                    .into_iter()
+                    .map(|f| format!("{:?}", f))
+                    .collect_vec(),
+                format!("{:?}", eval),
+            ));
+            PCS_RECORDER.as_mut().unwrap().push((PcsOps::Open, 1));
         }
         Ok(())
     }
@@ -186,12 +226,22 @@ where
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
 
-        for eval in evals {
-            let poly = polys[eval.poly()];
-            let comm = comms[eval.poly()];
-            let point = &points[eval.point()];
-            let eval = eval.value();
-            MockPcs::<F, H>::open(pp, poly, comm, point, eval, transcript)?;
+        unsafe {
+            for eval in evals {
+                CONTAINER.as_mut().unwrap().poly_points.push((
+                    serde_json::to_string(&polys[eval.poly]).unwrap(),
+                    points[eval.point]
+                        .clone()
+                        .into_iter()
+                        .map(|f| format!("{:?}", f))
+                        .collect_vec(),
+                    format!("{:?}", eval.value),
+                ));
+            }
+            PCS_RECORDER
+                .as_mut()
+                .unwrap()
+                .push((PcsOps::Open, polys.len()));
         }
 
         Ok(())
@@ -214,6 +264,7 @@ where
         evals: &[Evaluation<F>],
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
+        let comms = comms.into_iter().collect_vec();
         Ok(())
     }
 

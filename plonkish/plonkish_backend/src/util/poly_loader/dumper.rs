@@ -1,8 +1,7 @@
+use serde::Serialize;
 use serde_json::to_string;
 use std::fs::File;
 use std::io::Write;
-
-use crate::util::poly_loader::container::MatrixContainer;
 
 pub struct Dumper;
 
@@ -11,8 +10,8 @@ impl Dumper {
         Self {}
     }
 
-    pub fn dump(&self, container: &MatrixContainer, file_path: &str) {
-        let mut result = to_string(container).unwrap();
+    pub fn dump<T: Serialize>(&self, data: &T, file_path: &str) {
+        let mut result = to_string(data).unwrap();
 
         let mut file = File::create(file_path).unwrap();
         write!(file, "{}", result).unwrap();
@@ -26,7 +25,7 @@ mod test {
 
     use super::*;
 
-    use crate::util::poly_loader::container::Field;
+    use crate::util::poly_loader::container::{Field, MatrixContainer};
     use num_bigint::BigInt;
     use p3_baby_bear::BabyBear;
     use p3_bn254_fr::Bn254Fr;

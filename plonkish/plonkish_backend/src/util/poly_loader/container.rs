@@ -20,7 +20,7 @@ pub struct MatrixContainer {
     pub matrices_num: Vec<usize>,        // rounds[1, 2, (matrices_num)]
     pub matrix_widths: Vec<Vec<usize>>,  // rounds[matrices[1, 2, (matrix_widths)]]
     pub matrices: Vec<Vec<Vec<String>>>, // rounds[matrices[elements[1, 2, 3, 4, 5, 6]]], according to p3 matrix format
-    pub poly_points: HashMap<String, Vec<String>>, // map(commitment => [points])
+    pub poly_points: Vec<(String, Vec<String>, String)>, // vec[(poly, point, eval)]
 }
 
 impl MatrixContainer {
@@ -33,11 +33,12 @@ impl MatrixContainer {
             matrices_num: vec![],
             matrix_widths: vec![],
             matrices: vec![],
-            poly_points: HashMap::new(),
+            poly_points: vec![],
         }
     }
 
     pub fn new_round(&mut self) {
+        self.rounds += 1;
         self.matrices_num.push(0);
         self.matrix_widths.push(vec![]);
         self.matrices.push(vec![]);

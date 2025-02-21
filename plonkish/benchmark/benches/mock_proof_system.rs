@@ -1,235 +1,356 @@
-use benchmark::{
-    espresso,
-    halo2::{AggregationCircuit, Sha256Circuit},
-};
-// Imports from `espresso_hyperplonk` for certain proof systems or mocking circuits.
-use espresso_hyperplonk::{prelude::MockCircuit, HyperPlonkSNARK};
-// Additional subroutines (e.g., for multilinear KZG).
-use espresso_subroutines::{MultilinearKzgPCS, PolyIOP, PolynomialCommitmentScheme};
-
-// Standard Halo2 PLONK + KZG references.
-use halo2_proofs::{
-    plonk::{create_proof, keygen_pk, keygen_vk, verify_proof},
-    poly::kzg::{
-        commitment::ParamsKZG,
-        multiopen::{ProverGWC, VerifierGWC},
-        strategy::SingleStrategy,
-    },
-    transcript::{Blake2bRead, Blake2bWrite, TranscriptReadBuffer, TranscriptWriterBuffer},
-};
-
-// For convenient iterator transformations (e.g., collect_vec, tuple_windows).
-use itertools::Itertools;
-
-use p3_baby_bear::BabyBear;
-// A custom "plonkish_backend" library with advanced functionalities/circuits.
+use itertools::Itertools as _;
+use num_bigint::BigInt;
+use plonkish_backend::pcs::mock_pcs::PcsOps;
+use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
+use plonkish_backend::poly::Polynomial;
+use plonkish_backend::util::hash::{Blake2s, Output};
+use plonkish_backend::util::poly_loader::loader::Loader;
+use plonkish_backend::util::transcript::{Blake2sTranscript, InMemoryTranscript};
 use plonkish_backend::{
-    backend::{self, PlonkishBackend, PlonkishCircuit},
-    frontend::halo2::{circuit::VanillaPlonk, CircuitExt, Halo2Circuit},
-    halo2_curves::{
-        bn256::{Bn256, Fr},
-        secp256k1::Fp,
-    },
-    pcs::{
-        mock_pcs::{MockPcs, CONTAINER, FIELD as MF},
-        // Possibly two different FRI implementations (multilinear vs. univariate).
-        multilinear::Gemini,
-        univariate::UnivariateKzg,
-    },
-    util::{
-        code::BrakedownSpec6, // Possibly special circuit specs.
-        end_timer,
-        goldilocksMont::GoldilocksMont, // Possibly a specialized field / curves.
-        hash::{Blake2s, Blake2s256},    // Additional hashing utilities.
-        poly_loader::{container::Field as CF, dumper::Dumper},
-        start_timer,   // Timer utilities for measuring performance.
-        test::std_rng, // A standard RNG for testing.
-        transcript::{Blake2sTranscript, InMemoryTranscript, MockTranscript}, // Transcript types for non-interactive proofs.
-    },
+    halo2_curves::bn256::Fr,
+    pcs::{multilinear::ZeromorphFri, univariate::Fri},
+    poly::multilinear::MultilinearPolynomial,
+    util::poly_loader::container::Field as CF,
 };
-
-// Std library imports for I/O, timing, etc.
+use rand::thread_rng;
+use serde_json::from_str;
+use std::collections::HashMap;
 use std::{
-    env::args, // Command-line arg parsing.
+    env::args,
     fmt::Display,
     fs::{create_dir, File, OpenOptions},
     io::Write,
     iter,
-    ops::Range,
     path::Path,
     time::{Duration, Instant},
 };
 
-// The folder where benchmark data will be written.
-const OUTPUT_DIR: &str = "./bench_data/mock";
+const OUTPUT_DIR: &str = "./bench_data/kzg";
 
-/// Main entry point for running benchmarks.
-/// 1) Parse CLI args to decide the system, circuit, and k range.
-/// 2) Create output directories.
-/// 3) For each k in the range, run each system's benchmark with the chosen circuit.
+pub struct Record {
+    pub method: PcsOps,
+    pub poly_num: usize,
+    pub poly_vars: usize,
+    pub time: u128,
+    pub size: Option<usize>,
+}
+
 fn main() {
-    unsafe {
-        MF = Some(CF::Bn254Fr);
+    let systems = parse_args();
+    create_output(&systems);
+    systems.iter().for_each(|system| system.bench());
+}
+
+fn bench_mock_psys<
+    P: PolynomialCommitmentScheme<
+        Fr,
+        Polynomial = MultilinearPolynomial<Fr>,
+        CommitmentChunk = Output<Blake2s>,
+    >,
+>()
+where
+    <P as PolynomialCommitmentScheme<Fr>>::Commitment: AsRef<[Output<Blake2s>]>,
+{
+    let loader = Loader::new(CF::Bn254Fr);
+    let commit_data = loader.load("mock_data.json");
+    let mut commit_pointer = 0;
+    let mut open_pointer = 0;
+    let instructions: Vec<(PcsOps, usize)> =
+        serde_json::from_reader(File::open("mock_pcs_recorder.json").unwrap()).unwrap();
+
+    let mut poly_map: HashMap<
+        Vec<String>, // polynomial as string
+        (
+            Option<Vec<u8>>,                                           // transcript as string
+            Option<Vec<Fr>>,                                           // point as string
+            Option<Fr>,                                                // eval as string
+            Option<<P as PolynomialCommitmentScheme<Fr>>::Commitment>, // commitment
+        ),
+    > = HashMap::new();
+    let mut verify_map = HashMap::new();
+    let mut records = Vec::new();
+
+    assert!(commit_data.rounds == 1);
+    assert!(commit_data.matrices_num[0] == 1);
+
+    // setup and trim
+    let param = P::setup(
+        commit_data.poly_size,
+        commit_data.batch_size,
+        &mut thread_rng(),
+    )
+    .unwrap();
+    let (pp, vp) = P::trim(&param, commit_data.poly_size, commit_data.batch_size).unwrap();
+
+    // commit and open
+    for (ops, size) in instructions {
+        let mut duration = Duration::from_millis(0);
+        match ops {
+            PcsOps::Commit => {
+                match commit_data.matrix_widths[0][commit_pointer] {
+                    1 => {
+                        let poly = MultilinearPolynomial::new(
+                            commit_data.matrices[0][commit_pointer]
+                                .clone()
+                                .into_iter()
+                                .map(|s| {
+                                    let bigint = BigInt::parse_bytes(s.as_bytes(), 16).unwrap();
+                                    let mut bytes = [0u8; 32];
+                                    bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
+                                    Fr::from_bytes(&bytes).unwrap()
+                                })
+                                .collect_vec(),
+                        );
+                        let start = Instant::now();
+                        let comm = P::commit(&pp, &poly).unwrap();
+                        duration = start.elapsed();
+                        poly_map.insert(
+                            commit_data.matrices[0][commit_pointer].clone(),
+                            (None, None, None, Some(comm.clone())),
+                        );
+                        records.push(Record {
+                            method: ops,
+                            poly_num: 1,
+                            poly_vars: poly.num_vars(),
+                            time: duration.as_millis(),
+                            size: Some(comm.as_ref()[0].len()), // size of commitment, considering comm as [Output<H>] as [[u8]]
+                        });
+                    }
+                    _ => {
+                        let polys_str = &commit_data.matrices[0][commit_pointer];
+                        let matrix_width = commit_data.matrix_widths[0][commit_pointer];
+                        let polys = polys_str
+                            .chunks(matrix_width)
+                            .map(|chunk| {
+                                MultilinearPolynomial::new(
+                                    chunk
+                                        .iter()
+                                        .map(|s| {
+                                            let bigint =
+                                                BigInt::parse_bytes(s.as_bytes(), 16).unwrap();
+                                            let mut bytes = [0u8; 32];
+                                            bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
+                                            Fr::from_bytes(&bytes).unwrap()
+                                        })
+                                        .collect_vec(),
+                                )
+                            })
+                            .collect_vec();
+                        let start = Instant::now();
+                        let comms = P::batch_commit(&pp, &polys).unwrap();
+                        let comms_size = comms.iter().map(|c| c.as_ref()[0].len()).sum::<usize>();
+                        // write_commitments(&mut transcript, &comms);
+                        duration = start.elapsed();
+                        for (poly, comm) in polys_str.chunks(matrix_width).zip(comms.clone()) {
+                            poly_map.insert(poly.to_vec(), (None, None, None, Some(comm)));
+                        }
+                        records.push(Record {
+                            method: ops,
+                            poly_num: polys.len(),
+                            poly_vars: polys[0].num_vars(),
+                            time: duration.as_millis(),
+                            size: Some(comms_size), // size of commitment
+                        });
+                    }
+                }
+                commit_pointer += 1;
+            }
+            PcsOps::Open => match size {
+                1 => {
+                    let (poly, point, eval) = &commit_data.poly_points[open_pointer];
+                    let poly = from_str::<MultilinearPolynomial<Fr>>(poly).unwrap();
+                    let comm = poly_map
+                        .get(
+                            &poly
+                                .evals()
+                                .into_iter()
+                                .map(|f| format!("{:?}", f))
+                                .collect_vec(),
+                        )
+                        .unwrap()
+                        .3
+                        .clone()
+                        .unwrap();
+                    let point = point
+                        .clone()
+                        .into_iter()
+                        .map(|f| {
+                            let bigint = BigInt::parse_bytes(f.as_bytes(), 16).unwrap();
+                            let mut bytes = [0u8; 32];
+                            bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
+                            Fr::from_bytes(&bytes).unwrap()
+                        })
+                        .collect_vec();
+                    let eval = {
+                        let bigint = BigInt::parse_bytes(eval.as_bytes(), 16).unwrap();
+                        let mut bytes = [0u8; 32];
+                        bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
+                        &Fr::from_bytes(&bytes).unwrap()
+                    };
+                    let mut transcript = Blake2sTranscript::default();
+
+                    let start = Instant::now();
+                    P::open(&pp, &poly, &comm, point.as_ref(), eval, &mut transcript).unwrap();
+                    duration = start.elapsed();
+
+                    let proof = transcript.into_proof();
+
+                    poly_map.insert(
+                        poly.evals()
+                            .into_iter()
+                            .map(|f| format!("{:?}", f))
+                            .collect_vec(),
+                        (
+                            Some(proof.clone()),
+                            Some(point.clone()),
+                            Some(eval.clone()),
+                            Some(comm.clone()),
+                        ),
+                    );
+                    verify_map.insert(proof.clone(), (vec![eval.clone()], vec![comm]));
+
+                    records.push(Record {
+                        method: ops,
+                        poly_num: 1,
+                        poly_vars: poly.num_vars(),
+                        time: duration.as_millis(),
+                        size: Some(proof.len()),
+                    });
+
+                    open_pointer += size;
+                }
+                _ => {
+                    let (mut polys, mut points, mut evals, mut comms) = (
+                        Vec::with_capacity(size),
+                        Vec::with_capacity(size),
+                        Vec::with_capacity(size),
+                        Vec::with_capacity(size),
+                    );
+
+                    commit_data.poly_points[open_pointer..open_pointer + size]
+                        .into_iter()
+                        .zip(0..size)
+                        .for_each(|((poly, point, eval), i)| {
+                            let point = point
+                                .clone()
+                                .into_iter()
+                                .map(|f| {
+                                    let bigint = BigInt::parse_bytes(f.as_bytes(), 16).unwrap();
+                                    let mut bytes = [0u8; 32];
+                                    bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
+                                    Fr::from_bytes(&bytes).unwrap()
+                                })
+                                .collect_vec();
+
+                            let bigint = BigInt::parse_bytes(eval.as_bytes(), 16).unwrap();
+                            let mut bytes = [0u8; 32];
+                            bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
+                            let eval = Fr::from_bytes(&bytes).unwrap();
+
+                            let comm = poly_map
+                                .get(
+                                    &from_str::<MultilinearPolynomial<Fr>>(poly)
+                                        .unwrap()
+                                        .evals()
+                                        .into_iter()
+                                        .map(|f| format!("{:?}", f))
+                                        .collect_vec(),
+                                )
+                                .unwrap()
+                                .3
+                                .clone()
+                                .unwrap();
+
+                            poly_map.insert(
+                                from_str::<MultilinearPolynomial<Fr>>(poly)
+                                    .unwrap()
+                                    .evals()
+                                    .into_iter()
+                                    .map(|f| format!("{:?}", f))
+                                    .collect_vec(),
+                                (None, Some(point.clone()), Some(eval), Some(comm.clone())),
+                            );
+
+                            polys.push(from_str(poly).unwrap());
+                            points.push(point);
+                            evals.push(eval);
+                            comms.push(comm);
+                        });
+
+                    let mut transcript = Blake2sTranscript::default();
+
+                    let start = Instant::now();
+                    P::batch_open(
+                        &pp,
+                        &polys,
+                        &comms,
+                        &points,
+                        evals
+                            .clone()
+                            .into_iter()
+                            .zip(0..polys.len())
+                            .map(|(e, i)| Evaluation::new(i, i, e))
+                            .collect_vec()
+                            .as_slice(),
+                        &mut transcript,
+                    )
+                    .unwrap();
+                    duration = start.elapsed();
+
+                    let proof = transcript.into_proof();
+                    verify_map.insert(proof.clone(), (evals.clone(), comms.clone()));
+
+                    records.push(Record {
+                        method: ops,
+                        poly_num: polys.len(),
+                        poly_vars: polys[0].num_vars(),
+                        time: duration.as_millis(),
+                        size: Some(proof.len()),
+                    });
+
+                    open_pointer += size;
+                }
+            },
+        }
     }
-    let (systems, circuit, k_range) = parse_args(); // (1) parse CLI args
-    create_output(&systems); // (2) ensure we have output files/folders
-                             // (3) For each exponent k in k_range, for each system, call system.bench(k, circuit).
-    k_range.for_each(|k| systems.iter().for_each(|system| system.bench(k, circuit)));
+
+    todo!("verify all polys");
 }
 
-/// Benchmarks HyperPlonk for a given circuit size k and circuit type C.
-fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
-    // 1) Type definitions for the FRI-based PCS.
-    type Mock = MockPcs<Fr, Blake2s256>;
-    // 2) Our HyperPlonk backend uses Gemini as the polynomial commitment scheme.
-    type HyperPlonk = backend::hyperplonk::HyperPlonk<Mock>;
-
-    // 3) Generate a random circuit of size k.
-    let circuit = C::rand(k, std_rng());
-    // 4) Convert the random circuit into a Halo2Circuit that HyperPlonk can understand.
-    let circuit = Halo2Circuit::new::<HyperPlonk>(k, circuit);
-
-    // Additional data needed for setup/proof generation: circuit_info, instance arrays, etc.
-    let circuit_info = circuit.circuit_info().unwrap();
-    let instances = circuit.instances();
-
-    // 5) Setup
-    let timer = start_timer(|| format!("hyperplonk_setup-{k}"));
-    // 6) Produce universal params for HyperPlonk (contains cryptographic data).
-    let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
-    end_timer(timer);
-
-    // 7) Preprocessing (split params into prover/verifier subsets, or do any polynomial prep).
-    let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
-    let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
-    end_timer(timer);
-
-    // 8) Proving phase, measured using the `sample` helper function.
-    let proof = sample(System::HyperPlonk, k, || {
-        let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
-        // 9) A transcript where proof data is recorded; used for non-interactive proofs.
-        let mut transcript = MockTranscript::<Fr, Blake2s256>::default();
-        // 10) Generate the proof with the prover parameters, circuit data, RNG, etc.
-        HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
-        // Convert the transcript into a raw byte vector proof.
-        let proof = transcript.into_proof();
-        proof
-    });
-
-    unsafe {
-        let dumper = Dumper::new();
-        dumper.dump(&CONTAINER.clone().unwrap(), "mock_data.json");
-    }
-
-    // // 11) Proof size in bits (assuming each byte is 8 bits).
-    // let size = proof.len() * 8;
-    // // Write the proof size into a file specific to this system.
-    // writeln!(&mut (System::HyperPlonk).size_output(), "{}", size).unwrap();
-
-    // // 12) Verification, measured via `verifier_sample`.
-    // let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    // let accept = verifier_sample(System::HyperPlonk, k, || {
-    //     // 13) Recreate a transcript from the proof bytes for verification.
-    //     let mut transcript = MockTranscript::default();
-    //     // 14) Attempt to verify the proof with the verifier params, instance data, etc.
-    //     HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    // });
-    // // If verification fails, panic in debug mode.
-    // assert!(accept);
-}
-
-/// Benchmarks Halo2's KZG scheme for a circuit of size k and circuit type C.
-fn bench_halo2<C: CircuitExt<Fr>>(k: usize) {
-    // 1) Random circuit of size k.
-    let circuit = C::rand(k, std_rng());
-    let circuits = &[circuit];
-
-    // 2) Gather "instance" data (public inputs) and structure for Halo2's APIs.
-    let instances = circuits[0].instances();
-    let instances = instances.iter().map(Vec::as_slice).collect_vec();
-    let instances = [instances.as_slice()];
-
-    // Setup (produce KZG parameters) and measure the time.
-    let timer = start_timer(|| format!("halo2_setup-{k}"));
-    let param = ParamsKZG::<Bn256>::setup(k as u32, std_rng());
-    end_timer(timer);
-
-    // Generate verifying key (vk) and proving key (pk).
-    let timer = start_timer(|| format!("halo2_preprocess-{k}"));
-    let vk = keygen_vk::<_, _, _, false>(&param, &circuits[0]).unwrap();
-    let pk = keygen_pk::<_, _, _, false>(&param, vk, &circuits[0]).unwrap();
-    end_timer(timer);
-
-    // 5) Helper closures for proof creation and verification.
-    let create_proof = |c, d, e, mut f: Blake2bWrite<_, _, _>| {
-        create_proof::<_, ProverGWC<_>, _, _, _, _, false>(&param, &pk, c, d, e, &mut f).unwrap();
-        f.finalize()
-    };
-    let verify_proof =
-        |c, d, e| verify_proof::<_, VerifierGWC<_>, _, _, _, false>(&param, pk.get_vk(), c, d, e);
-
-    // 7) Proving step with repeated sampling for average time.
-    let proof = sample(System::HyperPlonk, k, || {
-        let _timer = start_timer(|| format!("halo2_prove-{k}"));
-        let transcript = Blake2bWrite::init(Vec::new());
-        create_proof(circuits, &instances, std_rng(), transcript)
-    });
-
-    // Verification step
-    let _timer = start_timer(|| format!("halo2_verify-{k}"));
-    let accept = {
-        let mut transcript = Blake2bRead::init(proof.as_slice());
-        let strategy = SingleStrategy::new(&param);
-        verify_proof(strategy, &instances, &mut transcript).is_ok()
-    };
-    // Ensure it verifies successfully.
-    assert!(accept);
-}
-
-/// Enum listing which system(s) can be benchmarked. Right now, only HyperPlonk is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum System {
-    HyperPlonk,
+    MockProofSystem,
 }
 
 impl System {
-    /// Returns all possible systems (in this example, just HyperPlonk).
     fn all() -> Vec<System> {
-        vec![System::HyperPlonk]
+        vec![System::MockProofSystem]
     }
 
-    /// Path to the "proving time" or general output file for this system.
     fn output_path(&self) -> String {
-        format!("{OUTPUT_DIR}/hyperplonk-mock")
+        format!("{OUTPUT_DIR}/{self}-kzg-prover")
     }
 
-    /// Path for the "verification time" output file.
     fn verifier_output_path(&self) -> String {
-        format!("{OUTPUT_DIR}/verifier-hyperplonk-mock")
+        format!("{OUTPUT_DIR}/{self}-kzg-verifier")
     }
 
-    /// Path for the "proof size" output file.
     fn size_output_path(&self) -> String {
-        format!("{OUTPUT_DIR}/size-hyperplonk-mock")
+        format!("{OUTPUT_DIR}/{self}-kzg-size")
     }
 
-    /// Opens the file for appending benchmark data (e.g., times).
     fn output(&self) -> File {
         OpenOptions::new()
             .append(true)
             .open(self.output_path())
             .unwrap()
     }
-
-    /// Similar file handle for verification times.
     fn verifier_output(&self) -> File {
         OpenOptions::new()
             .append(true)
             .open(self.verifier_output_path())
             .unwrap()
     }
-
-    /// File handle for the proof size logs.
     fn size_output(&self) -> File {
         OpenOptions::new()
             .append(true)
@@ -237,134 +358,45 @@ impl System {
             .unwrap()
     }
 
-    /// Whether this system can run a particular circuit variant. Currently everything is `true`.
-    fn support(&self, circuit: Circuit) -> bool {
-        match self {
-            System::HyperPlonk => match circuit {
-                Circuit::VanillaPlonk | Circuit::Aggregation | Circuit::Sha256 => true,
-            },
-        }
-    }
-
-    /// The main benchmark dispatcher. Decides which function to call based on system + circuit.
-    fn bench(&self, k: usize, circuit: Circuit) {
-        if !self.support(circuit) {
-            println!("skip benchmark on {circuit} with {self} because it's not compatible");
-            return;
-        }
-
-        println!("start benchmark on 2^{k} {circuit} with {self}");
-
-        // Match on the system and circuit, calling the correct bench function.
-        match self {
-            System::HyperPlonk => match circuit {
-                Circuit::VanillaPlonk => bench_hyperplonk::<VanillaPlonk<Fr>>(k),
-                Circuit::Aggregation => {
-                    // Example aggregator circuit commented out:
-                    // bench_hyperplonk::<AggregationCircuit<Bn256>>(k)
-                }
-                Circuit::Sha256 => {
-                    // Example Sha256 circuit commented out:
-                    // bench_hyperplonk::<Sha256Circuit>(k)
-                }
-            },
-        }
+    fn bench(&self) {
+        bench_mock_psys::<ZeromorphFri<Fri<Fr, Blake2s>>>();
     }
 }
 
 impl Display for System {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            System::HyperPlonk => write!(f, "hyperplonk"),
+            System::MockProofSystem => write!(f, "mock_proof_system"),
         }
     }
 }
 
-/// Enum enumerating possible circuit types: VanillaPlonk, Aggregation, or Sha256.
-#[derive(Debug, Clone, Copy)]
-enum Circuit {
-    VanillaPlonk,
-    Aggregation,
-    Sha256,
-}
-
-impl Circuit {
-    /// Minimum k value for each circuit type. E.g., Aggregation requires larger k.
-    fn min_k(&self) -> usize {
-        match self {
-            Circuit::VanillaPlonk => 4,
-            Circuit::Aggregation => 20,
-            Circuit::Sha256 => 17,
-        }
-    }
-}
-
-impl Display for Circuit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Circuit::VanillaPlonk => write!(f, "vanilla_plonk"),
-            Circuit::Aggregation => write!(f, "aggregation"),
-            Circuit::Sha256 => write!(f, "sha256"),
-        }
-    }
-}
-
-/// Parse CLI arguments like `--system hyperplonk --circuit vanilla_plonk --k 10..20`.
-/// Returns a tuple of (Vec<System>, Circuit, Range<usize>).
-fn parse_args() -> (Vec<System>, Circuit, Range<usize>) {
-    let (systems, circuit, k_range) = args().chain(Some("".to_string())).tuple_windows().fold(
-        (Vec::new(), Circuit::VanillaPlonk, 10..24),
-        |(mut systems, mut circuit, mut k_range), (key, value)| {
+fn parse_args() -> Vec<System> {
+    let systems = args().chain(Some("".to_string())).tuple_windows().fold(
+        Vec::new(),
+        |mut systems, (key, value)| {
             match key.as_str() {
                 "--system" => match value.as_str() {
                     "all" => systems = System::all(),
-                    "hyperplonk" => systems.push(System::HyperPlonk),
-                    _ => panic!(
-                        "system should be one of {{all,hyperplonk,halo2,espresso_hyperplonk}}"
-                    ),
+                    "mock_proof_system" => systems.push(System::MockProofSystem),
+                    _ => panic!("system should be one of {{all,mock_proof_system}}"),
                 },
-                "--circuit" => match value.as_str() {
-                    "vanilla_plonk" => circuit = Circuit::VanillaPlonk,
-                    "aggregation" => circuit = Circuit::Aggregation,
-                    "sha256" => circuit = Circuit::Sha256,
-                    _ => panic!("circuit should be one of {{aggregation,vanilla_plonk,sha256}}"),
-                },
-                "--k" => {
-                    // Handle either "10..20" or a single integer "12".
-                    if let Some((start, end)) = value.split_once("..") {
-                        k_range = start.parse().expect("k range start to be usize")
-                            ..end.parse().expect("k range end to be usize");
-                    } else {
-                        k_range.start = value.parse().expect("k to be usize");
-                        k_range.end = k_range.start + 1;
-                    }
-                }
                 _ => {}
             }
-            (systems, circuit, k_range)
+            systems
         },
     );
-
-    // Ensure k >= the minimum required for this circuit.
-    if k_range.start < circuit.min_k() {
-        panic!("k should be at least {} for {circuit:?}", circuit.min_k());
-    }
-
-    // Sort/deduplicate systems. If none specified, we default to all systems.
     let mut systems = systems.into_iter().sorted().dedup().collect_vec();
     if systems.is_empty() {
-        systems = System::all();
+        systems = vec![System::MockProofSystem];
     };
-
-    (systems, circuit, k_range)
+    systems
 }
 
-/// Creates output directory/files for each system's logs (proof times, verify times, proof size).
 fn create_output(systems: &[System]) {
     if !Path::new(OUTPUT_DIR).exists() {
         create_dir(OUTPUT_DIR).unwrap();
     }
-    // For each system, create 3 files: "output", "verifier_output", "size_output".
     for system in systems {
         File::create(system.output_path()).unwrap();
         File::create(system.verifier_output_path()).unwrap();
@@ -372,45 +404,36 @@ fn create_output(systems: &[System]) {
     }
 }
 
-/// Helper function for measuring the average prove time across multiple samples.
 fn sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
     let mut proof = None;
-    // Decide how many times to repeat based on k. Smaller k => more repeats.
     let sample_size = sample_size(k);
     let sum = iter::repeat_with(|| {
         let start = Instant::now();
-        proof = Some(prove()); // actually run the prove closure
+        proof = Some(prove());
         start.elapsed()
     })
     .take(sample_size)
     .sum::<Duration>();
-
     let avg = sum / sample_size as u32;
-    // Write the average (in milliseconds) to the system's output file.
-    writeln!(&mut system.output(), "{}", avg.as_millis()).unwrap();
-    println!("mock: {k}, {}", avg.as_millis());
+    writeln!(&mut system.output(), "{k}, {}", avg.as_millis()).unwrap();
     proof.unwrap()
 }
 
-/// Helper function for measuring the average verify time across multiple samples.
-fn verifier_sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
+fn sample_verifier<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
     let mut proof = None;
     let sample_size = sample_size(k);
     let sum = iter::repeat_with(|| {
         let start = Instant::now();
-        proof = Some(prove()); // run the verify closure
+        proof = Some(prove());
         start.elapsed()
     })
     .take(sample_size)
     .sum::<Duration>();
-
     let avg = sum / sample_size as u32;
-    // Write the average verification time to the system's verifier output file.
-    writeln!(&mut system.verifier_output(), "{}", avg.as_millis()).unwrap();
+    writeln!(&mut system.verifier_output(), "{k}, {}", avg.as_millis()).unwrap();
     proof.unwrap()
 }
 
-/// Determines how many samples to run based on k. For small k, run more samples for stable timing.
 fn sample_size(k: usize) -> usize {
     if k < 16 {
         20
