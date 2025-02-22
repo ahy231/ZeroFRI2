@@ -13,6 +13,7 @@ use plonkish_backend::{
     util::poly_loader::container::Field as CF,
 };
 use rand::thread_rng;
+use serde::Serialize;
 use serde_json::from_str;
 use std::collections::HashMap;
 use std::{
@@ -27,6 +28,7 @@ use std::{
 
 const OUTPUT_DIR: &str = "./bench_data/kzg";
 
+#[derive(Debug, Clone, Serialize)]
 pub struct Record {
     pub method: PcsOps,
     pub poly_num: usize,
@@ -35,10 +37,33 @@ pub struct Record {
     pub size: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct Analysis {
+    pub total_commit_time: u128,
+    pub total_open_time: u128,
+    pub total_verify_time: u128,
+    pub total_time: u128,
+    pub avg_commit_time: f64,
+    pub avg_open_time: f64,
+    pub avg_verify_time: f64,
+    pub avg_commit_size: f64,
+    pub avg_open_size: f64,
+    pub avg_poly_vars: f64,
+    pub avg_poly_num: f64,
+}
+
 fn main() {
     let systems = parse_args();
     create_output(&systems);
     systems.iter().for_each(|system| system.bench());
+}
+
+fn fr_from_str(s: &str) -> Fr {
+    let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
+    let mut bytes = [0u8; 32];
+    let bytes_le = bigint.to_bytes_le().1;
+    bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
+    Fr::from_bytes(&bytes).unwrap()
 }
 
 fn bench_mock_psys<
@@ -67,11 +92,13 @@ where
             Option<<P as PolynomialCommitmentScheme<Fr>>::Commitment>, // commitment
         ),
     > = HashMap::new();
-    let mut verify_map = HashMap::new();
+    let mut verify_data: Vec<(
+        Vec<u8>,                                                // proof
+        Vec<Vec<Fr>>,                                           // points
+        Vec<Fr>,                                                // evals
+        Vec<<P as PolynomialCommitmentScheme<Fr>>::Commitment>, // commitments
+    )> = Vec::new();
     let mut records = Vec::new();
-
-    assert!(commit_data.rounds == 1);
-    assert!(commit_data.matrices_num[0] == 1);
 
     // setup and trim
     let param = P::setup(
@@ -84,7 +111,7 @@ where
 
     // commit and open
     for (ops, size) in instructions {
-        let mut duration = Duration::from_millis(0);
+        let duration;
         match ops {
             PcsOps::Commit => {
                 match commit_data.matrix_widths[0][commit_pointer] {
@@ -93,12 +120,7 @@ where
                             commit_data.matrices[0][commit_pointer]
                                 .clone()
                                 .into_iter()
-                                .map(|s| {
-                                    let bigint = BigInt::parse_bytes(s.as_bytes(), 16).unwrap();
-                                    let mut bytes = [0u8; 32];
-                                    bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
-                                    Fr::from_bytes(&bytes).unwrap()
-                                })
+                                .map(|s| fr_from_str(&s))
                                 .collect_vec(),
                         );
                         let start = Instant::now();
@@ -119,20 +141,14 @@ where
                     _ => {
                         let polys_str = &commit_data.matrices[0][commit_pointer];
                         let matrix_width = commit_data.matrix_widths[0][commit_pointer];
-                        let polys = polys_str
+                        let matrix = polys_str
                             .chunks(matrix_width)
-                            .map(|chunk| {
+                            .map(|chunk| chunk.iter().map(|s| fr_from_str(&s)).collect_vec())
+                            .collect_vec();
+                        let polys = (0..matrix_width)
+                            .map(|i| {
                                 MultilinearPolynomial::new(
-                                    chunk
-                                        .iter()
-                                        .map(|s| {
-                                            let bigint =
-                                                BigInt::parse_bytes(s.as_bytes(), 16).unwrap();
-                                            let mut bytes = [0u8; 32];
-                                            bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
-                                            Fr::from_bytes(&bytes).unwrap()
-                                        })
-                                        .collect_vec(),
+                                    matrix.iter().map(|r| r[i]).collect_vec(),
                                 )
                             })
                             .collect_vec();
@@ -141,8 +157,14 @@ where
                         let comms_size = comms.iter().map(|c| c.as_ref()[0].len()).sum::<usize>();
                         // write_commitments(&mut transcript, &comms);
                         duration = start.elapsed();
-                        for (poly, comm) in polys_str.chunks(matrix_width).zip(comms.clone()) {
-                            poly_map.insert(poly.to_vec(), (None, None, None, Some(comm)));
+                        for (poly, comm) in polys.clone().into_iter().zip(comms.clone()) {
+                            poly_map.insert(
+                                poly.evals()
+                                    .into_iter()
+                                    .map(|f| format!("{:?}", f))
+                                    .collect_vec(),
+                                (None, None, None, Some(comm)),
+                            );
                         }
                         records.push(Record {
                             method: ops,
@@ -174,23 +196,13 @@ where
                     let point = point
                         .clone()
                         .into_iter()
-                        .map(|f| {
-                            let bigint = BigInt::parse_bytes(f.as_bytes(), 16).unwrap();
-                            let mut bytes = [0u8; 32];
-                            bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
-                            Fr::from_bytes(&bytes).unwrap()
-                        })
+                        .map(|f| fr_from_str(&f))
                         .collect_vec();
-                    let eval = {
-                        let bigint = BigInt::parse_bytes(eval.as_bytes(), 16).unwrap();
-                        let mut bytes = [0u8; 32];
-                        bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
-                        &Fr::from_bytes(&bytes).unwrap()
-                    };
+                    let eval = fr_from_str(eval);
                     let mut transcript = Blake2sTranscript::default();
 
                     let start = Instant::now();
-                    P::open(&pp, &poly, &comm, point.as_ref(), eval, &mut transcript).unwrap();
+                    P::open(&pp, &poly, &comm, point.as_ref(), &eval, &mut transcript).unwrap();
                     duration = start.elapsed();
 
                     let proof = transcript.into_proof();
@@ -207,7 +219,12 @@ where
                             Some(comm.clone()),
                         ),
                     );
-                    verify_map.insert(proof.clone(), (vec![eval.clone()], vec![comm]));
+                    verify_data.push((
+                        proof.clone(),
+                        vec![point.clone()],
+                        vec![eval.clone()],
+                        vec![comm],
+                    ));
 
                     records.push(Record {
                         method: ops,
@@ -229,37 +246,20 @@ where
 
                     commit_data.poly_points[open_pointer..open_pointer + size]
                         .into_iter()
-                        .zip(0..size)
-                        .for_each(|((poly, point, eval), i)| {
+                        .for_each(|(poly, point, eval)| {
                             let point = point
                                 .clone()
                                 .into_iter()
-                                .map(|f| {
-                                    let bigint = BigInt::parse_bytes(f.as_bytes(), 16).unwrap();
-                                    let mut bytes = [0u8; 32];
-                                    bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
-                                    Fr::from_bytes(&bytes).unwrap()
-                                })
+                                .map(|f| fr_from_str(&f))
                                 .collect_vec();
-
-                            let bigint = BigInt::parse_bytes(eval.as_bytes(), 16).unwrap();
-                            let mut bytes = [0u8; 32];
-                            bytes[..32].copy_from_slice(&bigint.to_bytes_le().1);
-                            let eval = Fr::from_bytes(&bytes).unwrap();
-
-                            let comm = poly_map
-                                .get(
-                                    &from_str::<MultilinearPolynomial<Fr>>(poly)
-                                        .unwrap()
-                                        .evals()
-                                        .into_iter()
-                                        .map(|f| format!("{:?}", f))
-                                        .collect_vec(),
-                                )
+                            let eval = fr_from_str(eval);
+                            let poly_str = &from_str::<MultilinearPolynomial<Fr>>(poly)
                                 .unwrap()
-                                .3
-                                .clone()
-                                .unwrap();
+                                .evals()
+                                .into_iter()
+                                .map(|f| format!("{:?}", f))
+                                .collect_vec();
+                            let comm = poly_map.get(poly_str).unwrap().3.clone().unwrap();
 
                             poly_map.insert(
                                 from_str::<MultilinearPolynomial<Fr>>(poly)
@@ -298,7 +298,7 @@ where
                     duration = start.elapsed();
 
                     let proof = transcript.into_proof();
-                    verify_map.insert(proof.clone(), (evals.clone(), comms.clone()));
+                    verify_data.push((proof.clone(), points.clone(), evals.clone(), comms.clone()));
 
                     records.push(Record {
                         method: ops,
@@ -311,10 +311,124 @@ where
                     open_pointer += size;
                 }
             },
+            PcsOps::Verify => {
+                unreachable!("Verify should not be in the instructions");
+            }
         }
     }
 
-    todo!("verify all polys");
+    // verify
+    for (proof, points, evals, comms) in verify_data {
+        let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
+        let duration;
+        match points.len() {
+            1 => {
+                let start = Instant::now();
+                P::verify(&vp, &comms[0], &points[0], &evals[0], &mut transcript).unwrap();
+                duration = start.elapsed();
+            }
+            _ => {
+                let evals = evals
+                    .into_iter()
+                    .zip(0..points.len())
+                    .map(|(e, i)| Evaluation::new(i, i, e))
+                    .collect_vec();
+                let start = Instant::now();
+                P::batch_verify(&vp, &comms, &points, &evals, &mut transcript).unwrap();
+                duration = start.elapsed();
+            }
+        }
+        records.push(Record {
+            method: PcsOps::Verify,
+            poly_num: points.len(),
+            poly_vars: points[0].len(),
+            time: duration.as_millis(),
+            size: None,
+        });
+    }
+
+    let mut file = File::create("benchmark_records.json").unwrap();
+    serde_json::to_writer(&mut file, &records).unwrap();
+
+    // analysis
+    let total_commit_time = records
+        .iter()
+        .filter(|r| r.method == PcsOps::Commit)
+        .map(|r| r.time)
+        .sum::<u128>();
+    let total_open_time = records
+        .iter()
+        .filter(|r| r.method == PcsOps::Open)
+        .map(|r| r.time)
+        .sum::<u128>();
+    let total_verify_time = records
+        .iter()
+        .filter(|r| r.method == PcsOps::Verify)
+        .map(|r| r.time)
+        .sum::<u128>();
+    let total_time = total_commit_time + total_open_time + total_verify_time;
+    let total_commit_size = records
+        .iter()
+        .filter(|r| r.method == PcsOps::Commit)
+        .map(|r| r.size.unwrap())
+        .sum::<usize>();
+    let total_open_size = records
+        .iter()
+        .filter(|r| r.method == PcsOps::Open)
+        .map(|r| r.size.unwrap())
+        .sum::<usize>();
+    let avg_commit_time = total_commit_time as f64
+        / records
+            .iter()
+            .filter(|r| r.method == PcsOps::Commit)
+            .count() as f64;
+    let avg_open_time =
+        total_open_time as f64 / records.iter().filter(|r| r.method == PcsOps::Open).count() as f64;
+    let avg_verify_time = total_verify_time as f64
+        / records
+            .iter()
+            .filter(|r| r.method == PcsOps::Verify)
+            .count() as f64;
+    let avg_commit_size = total_commit_size as f64
+        / records
+            .iter()
+            .filter(|r| r.method == PcsOps::Commit)
+            .count() as f64;
+    let avg_open_size =
+        total_open_size as f64 / records.iter().filter(|r| r.method == PcsOps::Open).count() as f64;
+    let avg_poly_vars = records
+        .iter()
+        .filter(|r| r.method == PcsOps::Commit)
+        .map(|r| r.poly_vars)
+        .sum::<usize>() as f64
+        / records
+            .iter()
+            .filter(|r| r.method == PcsOps::Commit)
+            .count() as f64;
+    let avg_poly_num = records
+        .iter()
+        .filter(|r| r.method == PcsOps::Commit)
+        .map(|r| r.poly_num)
+        .sum::<usize>() as f64
+        / records
+            .iter()
+            .filter(|r| r.method == PcsOps::Commit)
+            .count() as f64;
+    let analysis = Analysis {
+        total_commit_time,
+        total_open_time,
+        total_verify_time,
+        total_time,
+        avg_commit_time,
+        avg_open_time,
+        avg_verify_time,
+        avg_commit_size,
+        avg_open_size,
+        avg_poly_vars,
+        avg_poly_num,
+    };
+    let mut file = File::create("benchmark_analysis.json").unwrap();
+    serde_json::to_writer(&mut file, &analysis).unwrap();
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -60,10 +60,11 @@ pub static mut FIELD: Option<CF> = None;
 pub static mut CONTAINER: Option<MatrixContainer> = None;
 pub static mut PCS_RECORDER: Option<Vec<(PcsOps, usize)>> = None;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum PcsOps {
     Commit,
     Open,
+    Verify,
 }
 
 impl<F: PrimeField, H: Hash> Eq for MockCommitment<F, H> {}
@@ -120,6 +121,7 @@ where
                 FIELD.unwrap().clone(),
             ));
             CONTAINER.as_mut().unwrap().new_round();
+            PCS_RECORDER = Some(Vec::new());
         }
 
         Ok(MockParams {
@@ -143,14 +145,16 @@ where
     }
 
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
-        unsafe {
-            CONTAINER.as_mut().unwrap().push_matrix(vec![poly
-                .clone()
-                .into_evals()
-                .into_iter()
-                .map(|f| format!("{:?}", f))
-                .collect_vec()]);
-            PCS_RECORDER.as_mut().unwrap().push((PcsOps::Commit, 1));
+        if poly.evals().len() > 0 {
+            unsafe {
+                CONTAINER.as_mut().unwrap().push_matrix(vec![poly
+                    .clone()
+                    .into_evals()
+                    .into_iter()
+                    .map(|f| format!("{:?}", f))
+                    .collect_vec()]);
+                PCS_RECORDER.as_mut().unwrap().push((PcsOps::Commit, 1));
+            }
         }
 
         Ok(Self::Commitment {
@@ -164,24 +168,26 @@ where
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
     ) -> Result<Vec<Self::Commitment>, Error> {
         let polys = polys.into_iter().collect_vec();
-        unsafe {
-            CONTAINER.as_mut().unwrap().push_matrix(
-                polys
-                    .clone()
-                    .into_iter()
-                    .map(|p| {
-                        p.clone()
-                            .into_evals()
-                            .into_iter()
-                            .map(|f| format!("{:?}", f))
-                            .collect_vec()
-                    })
-                    .collect_vec(),
-            );
-            PCS_RECORDER
-                .as_mut()
-                .unwrap()
-                .push((PcsOps::Commit, polys.len()));
+        if polys.len() > 0 && polys[0].evals().len() > 0 {
+            unsafe {
+                CONTAINER.as_mut().unwrap().push_matrix(
+                    polys
+                        .clone()
+                        .into_iter()
+                        .map(|p| {
+                            p.clone()
+                                .into_evals()
+                                .into_iter()
+                                .map(|f| format!("{:?}", f))
+                                .collect_vec()
+                        })
+                        .collect_vec(),
+                );
+                PCS_RECORDER
+                    .as_mut()
+                    .unwrap()
+                    .push((PcsOps::Commit, polys.len()));
+            }
         }
         Ok(polys
             .into_iter()
@@ -200,17 +206,19 @@ where
         eval: &F,
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
-        unsafe {
-            CONTAINER.as_mut().unwrap().poly_points.push((
-                serde_json::to_string(&poly).unwrap(),
-                point
-                    .clone()
-                    .into_iter()
-                    .map(|f| format!("{:?}", f))
-                    .collect_vec(),
-                format!("{:?}", eval),
-            ));
-            PCS_RECORDER.as_mut().unwrap().push((PcsOps::Open, 1));
+        if poly.evals().len() > 0 {
+            unsafe {
+                CONTAINER.as_mut().unwrap().poly_points.push((
+                    serde_json::to_string(&poly).unwrap(),
+                    point
+                        .clone()
+                        .into_iter()
+                        .map(|f| format!("{:?}", f))
+                        .collect_vec(),
+                    format!("{:?}", eval),
+                ));
+                PCS_RECORDER.as_mut().unwrap().push((PcsOps::Open, 1));
+            }
         }
         Ok(())
     }
@@ -226,22 +234,24 @@ where
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
 
-        unsafe {
-            for eval in evals {
-                CONTAINER.as_mut().unwrap().poly_points.push((
-                    serde_json::to_string(&polys[eval.poly]).unwrap(),
-                    points[eval.point]
-                        .clone()
-                        .into_iter()
-                        .map(|f| format!("{:?}", f))
-                        .collect_vec(),
-                    format!("{:?}", eval.value),
-                ));
+        if polys.len() > 0 && polys[0].evals().len() > 0 {
+            unsafe {
+                for eval in evals {
+                    CONTAINER.as_mut().unwrap().poly_points.push((
+                        serde_json::to_string(&polys[eval.poly]).unwrap(),
+                        points[eval.point]
+                            .clone()
+                            .into_iter()
+                            .map(|f| format!("{:?}", f))
+                            .collect_vec(),
+                        format!("{:?}", eval.value),
+                    ));
+                }
+                PCS_RECORDER
+                    .as_mut()
+                    .unwrap()
+                    .push((PcsOps::Open, polys.len()));
             }
-            PCS_RECORDER
-                .as_mut()
-                .unwrap()
-                .push((PcsOps::Open, polys.len()));
         }
 
         Ok(())
