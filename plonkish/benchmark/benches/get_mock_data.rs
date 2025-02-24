@@ -52,8 +52,6 @@ fn main() {
         MF = Some(CF::Bn254Fr);
     }
     let (systems, circuit, k_range) = parse_args(); // (1) parse CLI args
-    create_output(&systems); // (2) ensure we have output files/folders
-                             // (3) For each exponent k in k_range, for each system, call system.bench(k, circuit).
     k_range.for_each(|k| systems.iter().for_each(|system| system.bench(k, circuit)));
 }
 
@@ -352,7 +350,7 @@ fn sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
 
     let avg = sum / sample_size as u32;
     // Write the average (in milliseconds) to the system's output file.
-    writeln!(&mut system.output(), "{}", avg.as_millis()).unwrap();
+    // writeln!(&mut system.output(), "{}", avg.as_millis()).unwrap();
     println!("mock: {k}, {}", avg.as_millis());
     proof.unwrap()
 }
@@ -371,7 +369,7 @@ fn verifier_sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
 
     let avg = sum / sample_size as u32;
     // Write the average verification time to the system's verifier output file.
-    writeln!(&mut system.verifier_output(), "{}", avg.as_millis()).unwrap();
+    // writeln!(&mut system.verifier_output(), "{}", avg.as_millis()).unwrap();
     proof.unwrap()
 }
 

@@ -1,6 +1,8 @@
+use benchmark::BasefoldParams::BasefoldFri;
 use itertools::Itertools as _;
 use num_bigint::BigInt;
 use plonkish_backend::pcs::mock_pcs::PcsOps;
+use plonkish_backend::pcs::multilinear::Basefold;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
 use plonkish_backend::poly::Polynomial;
 use plonkish_backend::util::hash::{Blake2s, Output};
@@ -16,46 +18,43 @@ use rand::thread_rng;
 use serde::Serialize;
 use serde_json::from_str;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::{
     env::args,
     fmt::Display,
-    fs::{create_dir, File, OpenOptions},
-    io::Write,
-    iter,
-    path::Path,
+    fs::File,
     time::{Duration, Instant},
 };
 
-const OUTPUT_DIR: &str = "./bench_data/kzg";
+const OUTPUT_DIR: &str = "./bench_data/mock";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Record {
     pub method: PcsOps,
     pub poly_num: usize,
     pub poly_vars: usize,
-    pub time: u128,
+    pub time: f64,
     pub size: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Analysis {
-    pub total_commit_time: u128,
-    pub total_open_time: u128,
-    pub total_verify_time: u128,
-    pub total_time: u128,
+    pub total_commit_time: f64,
+    pub total_open_time: f64,
+    pub total_verify_time: f64,
+    pub total_time: f64,
     pub avg_commit_time: f64,
     pub avg_open_time: f64,
     pub avg_verify_time: f64,
     pub avg_commit_size: f64,
     pub avg_open_size: f64,
     pub avg_poly_vars: f64,
-    pub avg_poly_num: f64,
 }
 
 fn main() {
-    let systems = parse_args();
-    create_output(&systems);
-    systems.iter().for_each(|system| system.bench());
+    let (systems, k_range) = parse_args(); // (1) parse CLI args
+                                           // (2) For each exponent k in k_range, for each system, call system.bench(k).
+    k_range.for_each(|k| systems.iter().for_each(|system| system.bench(k)));
 }
 
 fn fr_from_str(s: &str) -> Fr {
@@ -72,8 +71,10 @@ fn bench_mock_psys<
         Polynomial = MultilinearPolynomial<Fr>,
         CommitmentChunk = Output<Blake2s>,
     >,
->()
-where
+>(
+    system: &System,
+    k: usize,
+) where
     <P as PolynomialCommitmentScheme<Fr>>::Commitment: AsRef<[Output<Blake2s>]>,
 {
     let loader = Loader::new(CF::Bn254Fr);
@@ -84,13 +85,8 @@ where
         serde_json::from_reader(File::open("mock_pcs_recorder.json").unwrap()).unwrap();
 
     let mut poly_map: HashMap<
-        Vec<String>, // polynomial as string
-        (
-            Option<Vec<u8>>,                                           // transcript as string
-            Option<Vec<Fr>>,                                           // point as string
-            Option<Fr>,                                                // eval as string
-            Option<<P as PolynomialCommitmentScheme<Fr>>::Commitment>, // commitment
-        ),
+        Vec<String>,                                       // polynomial as string
+        <P as PolynomialCommitmentScheme<Fr>>::Commitment, // commitment
     > = HashMap::new();
     let mut verify_data: Vec<(
         Vec<u8>,                                                // proof
@@ -111,7 +107,6 @@ where
 
     // commit and open
     for (ops, size) in instructions {
-        let duration;
         match ops {
             PcsOps::Commit => {
                 match commit_data.matrix_widths[0][commit_pointer] {
@@ -123,18 +118,17 @@ where
                                 .map(|s| fr_from_str(&s))
                                 .collect_vec(),
                         );
-                        let start = Instant::now();
-                        let comm = P::commit(&pp, &poly).unwrap();
-                        duration = start.elapsed();
+                        let (comm, duration) =
+                            sample(k, || (), |_| P::commit(&pp, &poly).unwrap(), |c| c);
                         poly_map.insert(
                             commit_data.matrices[0][commit_pointer].clone(),
-                            (None, None, None, Some(comm.clone())),
+                            comm.clone(),
                         );
                         records.push(Record {
                             method: ops,
                             poly_num: 1,
                             poly_vars: poly.num_vars(),
-                            time: duration.as_millis(),
+                            time: duration,
                             size: Some(comm.as_ref()[0].len()), // size of commitment, considering comm as [Output<H>] as [[u8]]
                         });
                     }
@@ -152,25 +146,23 @@ where
                                 )
                             })
                             .collect_vec();
-                        let start = Instant::now();
-                        let comms = P::batch_commit(&pp, &polys).unwrap();
+                        let (comms, duration) =
+                            sample(k, || (), |_| P::batch_commit(&pp, &polys).unwrap(), |c| c);
                         let comms_size = comms.iter().map(|c| c.as_ref()[0].len()).sum::<usize>();
-                        // write_commitments(&mut transcript, &comms);
-                        duration = start.elapsed();
                         for (poly, comm) in polys.clone().into_iter().zip(comms.clone()) {
                             poly_map.insert(
                                 poly.evals()
                                     .into_iter()
                                     .map(|f| format!("{:?}", f))
                                     .collect_vec(),
-                                (None, None, None, Some(comm)),
+                                comm.clone(),
                             );
                         }
                         records.push(Record {
                             method: ops,
                             poly_num: polys.len(),
                             poly_vars: polys[0].num_vars(),
-                            time: duration.as_millis(),
+                            time: duration,
                             size: Some(comms_size), // size of commitment
                         });
                     }
@@ -190,34 +182,31 @@ where
                                 .collect_vec(),
                         )
                         .unwrap()
-                        .3
-                        .clone()
-                        .unwrap();
+                        .clone();
                     let point = point
                         .clone()
                         .into_iter()
                         .map(|f| fr_from_str(&f))
                         .collect_vec();
                     let eval = fr_from_str(eval);
-                    let mut transcript = Blake2sTranscript::default();
 
-                    let start = Instant::now();
-                    P::open(&pp, &poly, &comm, point.as_ref(), &eval, &mut transcript).unwrap();
-                    duration = start.elapsed();
-
-                    let proof = transcript.into_proof();
+                    let (proof, duration) = sample(
+                        k,
+                        || Blake2sTranscript::default(),
+                        |mut transcript| {
+                            P::open(&pp, &poly, &comm, point.as_ref(), &eval, &mut transcript)
+                                .unwrap();
+                            transcript
+                        },
+                        |transcript| transcript.into_proof(),
+                    );
 
                     poly_map.insert(
                         poly.evals()
                             .into_iter()
                             .map(|f| format!("{:?}", f))
                             .collect_vec(),
-                        (
-                            Some(proof.clone()),
-                            Some(point.clone()),
-                            Some(eval.clone()),
-                            Some(comm.clone()),
-                        ),
+                        comm.clone(),
                     );
                     verify_data.push((
                         proof.clone(),
@@ -230,7 +219,7 @@ where
                         method: ops,
                         poly_num: 1,
                         poly_vars: poly.num_vars(),
-                        time: duration.as_millis(),
+                        time: duration,
                         size: Some(proof.len()),
                     });
 
@@ -259,7 +248,7 @@ where
                                 .into_iter()
                                 .map(|f| format!("{:?}", f))
                                 .collect_vec();
-                            let comm = poly_map.get(poly_str).unwrap().3.clone().unwrap();
+                            let comm = poly_map.get(poly_str).unwrap().clone();
 
                             poly_map.insert(
                                 from_str::<MultilinearPolynomial<Fr>>(poly)
@@ -268,7 +257,7 @@ where
                                     .into_iter()
                                     .map(|f| format!("{:?}", f))
                                     .collect_vec(),
-                                (None, Some(point.clone()), Some(eval), Some(comm.clone())),
+                                comm.clone(),
                             );
 
                             polys.push(from_str(poly).unwrap());
@@ -277,34 +266,37 @@ where
                             comms.push(comm);
                         });
 
-                    let mut transcript = Blake2sTranscript::default();
+                    let (proof, duration) = sample(
+                        k,
+                        || Blake2sTranscript::default(),
+                        |mut transcript| {
+                            P::batch_open(
+                                &pp,
+                                &polys,
+                                &comms,
+                                &points,
+                                evals
+                                    .clone()
+                                    .into_iter()
+                                    .zip(0..polys.len())
+                                    .map(|(e, i)| Evaluation::new(i, i, e))
+                                    .collect_vec()
+                                    .as_slice(),
+                                &mut transcript,
+                            )
+                            .unwrap();
+                            transcript
+                        },
+                        |transcript| transcript.into_proof(),
+                    );
 
-                    let start = Instant::now();
-                    P::batch_open(
-                        &pp,
-                        &polys,
-                        &comms,
-                        &points,
-                        evals
-                            .clone()
-                            .into_iter()
-                            .zip(0..polys.len())
-                            .map(|(e, i)| Evaluation::new(i, i, e))
-                            .collect_vec()
-                            .as_slice(),
-                        &mut transcript,
-                    )
-                    .unwrap();
-                    duration = start.elapsed();
-
-                    let proof = transcript.into_proof();
                     verify_data.push((proof.clone(), points.clone(), evals.clone(), comms.clone()));
 
                     records.push(Record {
                         method: ops,
                         poly_num: polys.len(),
                         poly_vars: polys[0].num_vars(),
-                        time: duration.as_millis(),
+                        time: duration,
                         size: Some(proof.len()),
                     });
 
@@ -319,13 +311,17 @@ where
 
     // verify
     for (proof, points, evals, comms) in verify_data {
-        let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         let duration;
         match points.len() {
             1 => {
-                let start = Instant::now();
-                P::verify(&vp, &comms[0], &points[0], &evals[0], &mut transcript).unwrap();
-                duration = start.elapsed();
+                (_, duration) = sample(
+                    k,
+                    || Blake2sTranscript::from_proof((), proof.as_slice()),
+                    |mut transcript| {
+                        P::verify(&vp, &comms[0], &points[0], &evals[0], &mut transcript).unwrap()
+                    },
+                    |_| (),
+                );
             }
             _ => {
                 let evals = evals
@@ -333,21 +329,27 @@ where
                     .zip(0..points.len())
                     .map(|(e, i)| Evaluation::new(i, i, e))
                     .collect_vec();
-                let start = Instant::now();
-                P::batch_verify(&vp, &comms, &points, &evals, &mut transcript).unwrap();
-                duration = start.elapsed();
+                (_, duration) = sample(
+                    k,
+                    || Blake2sTranscript::from_proof((), proof.as_slice()),
+                    |mut transcript| {
+                        P::batch_verify(&vp, &comms, &points, &evals, &mut transcript).unwrap();
+                        transcript
+                    },
+                    |_| (),
+                );
             }
         }
         records.push(Record {
             method: PcsOps::Verify,
             poly_num: points.len(),
             poly_vars: points[0].len(),
-            time: duration.as_millis(),
+            time: duration,
             size: None,
         });
     }
 
-    let mut file = File::create("benchmark_records.json").unwrap();
+    let mut file = File::create(system.detail_output_path(k)).unwrap();
     serde_json::to_writer(&mut file, &records).unwrap();
 
     // analysis
@@ -355,17 +357,17 @@ where
         .iter()
         .filter(|r| r.method == PcsOps::Commit)
         .map(|r| r.time)
-        .sum::<u128>();
+        .sum::<f64>();
     let total_open_time = records
         .iter()
         .filter(|r| r.method == PcsOps::Open)
         .map(|r| r.time)
-        .sum::<u128>();
+        .sum::<f64>();
     let total_verify_time = records
         .iter()
         .filter(|r| r.method == PcsOps::Verify)
         .map(|r| r.time)
-        .sum::<u128>();
+        .sum::<f64>();
     let total_time = total_commit_time + total_open_time + total_verify_time;
     let total_commit_size = records
         .iter()
@@ -381,39 +383,42 @@ where
         / records
             .iter()
             .filter(|r| r.method == PcsOps::Commit)
-            .count() as f64;
-    let avg_open_time =
-        total_open_time as f64 / records.iter().filter(|r| r.method == PcsOps::Open).count() as f64;
+            .map(|r| r.poly_num)
+            .sum::<usize>() as f64;
+    let avg_open_time = total_open_time as f64
+        / records
+            .iter()
+            .filter(|r| r.method == PcsOps::Open)
+            .map(|r| r.poly_num)
+            .sum::<usize>() as f64;
     let avg_verify_time = total_verify_time as f64
         / records
             .iter()
             .filter(|r| r.method == PcsOps::Verify)
-            .count() as f64;
+            .map(|r| r.poly_num)
+            .sum::<usize>() as f64;
     let avg_commit_size = total_commit_size as f64
         / records
             .iter()
             .filter(|r| r.method == PcsOps::Commit)
-            .count() as f64;
-    let avg_open_size =
-        total_open_size as f64 / records.iter().filter(|r| r.method == PcsOps::Open).count() as f64;
+            .map(|r| r.poly_num)
+            .sum::<usize>() as f64;
+    let avg_open_size = total_open_size as f64
+        / records
+            .iter()
+            .filter(|r| r.method == PcsOps::Open)
+            .map(|r| r.poly_num)
+            .sum::<usize>() as f64;
     let avg_poly_vars = records
         .iter()
         .filter(|r| r.method == PcsOps::Commit)
-        .map(|r| r.poly_vars)
+        .map(|r| r.poly_vars * r.poly_num)
         .sum::<usize>() as f64
         / records
             .iter()
             .filter(|r| r.method == PcsOps::Commit)
-            .count() as f64;
-    let avg_poly_num = records
-        .iter()
-        .filter(|r| r.method == PcsOps::Commit)
-        .map(|r| r.poly_num)
-        .sum::<usize>() as f64
-        / records
-            .iter()
-            .filter(|r| r.method == PcsOps::Commit)
-            .count() as f64;
+            .map(|r| r.poly_num)
+            .sum::<usize>() as f64;
     let analysis = Analysis {
         total_commit_time,
         total_open_time,
@@ -425,127 +430,104 @@ where
         avg_commit_size,
         avg_open_size,
         avg_poly_vars,
-        avg_poly_num,
     };
-    let mut file = File::create("benchmark_analysis.json").unwrap();
+    let mut file = File::create(system.analysis_output_path(k)).unwrap();
     serde_json::to_writer(&mut file, &analysis).unwrap();
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum System {
-    MockProofSystem,
+    ZeromorphFri,
+    Basefold256,
 }
 
 impl System {
     fn all() -> Vec<System> {
-        vec![System::MockProofSystem]
+        vec![System::ZeromorphFri, System::Basefold256]
     }
 
-    fn output_path(&self) -> String {
-        format!("{OUTPUT_DIR}/{self}-kzg-prover")
+    fn detail_output_path(&self, k: usize) -> String {
+        format!("{OUTPUT_DIR}/{self}-{k}-detail.json")
     }
 
-    fn verifier_output_path(&self) -> String {
-        format!("{OUTPUT_DIR}/{self}-kzg-verifier")
+    fn analysis_output_path(&self, k: usize) -> String {
+        format!("{OUTPUT_DIR}/{self}-{k}-analysis.json")
     }
 
-    fn size_output_path(&self) -> String {
-        format!("{OUTPUT_DIR}/{self}-kzg-size")
-    }
-
-    fn output(&self) -> File {
-        OpenOptions::new()
-            .append(true)
-            .open(self.output_path())
-            .unwrap()
-    }
-    fn verifier_output(&self) -> File {
-        OpenOptions::new()
-            .append(true)
-            .open(self.verifier_output_path())
-            .unwrap()
-    }
-    fn size_output(&self) -> File {
-        OpenOptions::new()
-            .append(true)
-            .open(self.size_output_path())
-            .unwrap()
-    }
-
-    fn bench(&self) {
-        bench_mock_psys::<ZeromorphFri<Fri<Fr, Blake2s>>>();
+    fn bench(&self, k: usize) {
+        match self {
+            System::ZeromorphFri => bench_mock_psys::<ZeromorphFri<Fri<Fr, Blake2s>>>(self, k),
+            System::Basefold256 => bench_mock_psys::<Basefold<Fr, Blake2s, BasefoldFri>>(self, k),
+        }
     }
 }
 
 impl Display for System {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            System::MockProofSystem => write!(f, "mock_proof_system"),
+            System::ZeromorphFri => write!(f, "zeromorph_fri"),
+            System::Basefold256 => write!(f, "basefold256"),
         }
     }
 }
 
-fn parse_args() -> Vec<System> {
-    let systems = args().chain(Some("".to_string())).tuple_windows().fold(
-        Vec::new(),
-        |mut systems, (key, value)| {
+fn parse_args() -> (Vec<System>, Range<usize>) {
+    let (systems, k_range) = args().chain(Some("".to_string())).tuple_windows().fold(
+        (Vec::new(), 10..24),
+        |(mut systems, mut k_range), (key, value)| {
             match key.as_str() {
                 "--system" => match value.as_str() {
                     "all" => systems = System::all(),
-                    "mock_proof_system" => systems.push(System::MockProofSystem),
-                    _ => panic!("system should be one of {{all,mock_proof_system}}"),
+                    "zeromorph_fri" => systems.push(System::ZeromorphFri),
+                    "basefold256" => systems.push(System::Basefold256),
+                    _ => panic!("system should be one of {{all,zeromorph_fri,basefold256}}"),
                 },
+                "--k" => {
+                    // Handle either "10..20" or a single integer "12".
+                    if let Some((start, end)) = value.split_once("..") {
+                        k_range = start.parse().expect("k range start to be usize")
+                            ..end.parse().expect("k range end to be usize");
+                    } else {
+                        k_range.start = value.parse().expect("k to be usize");
+                        k_range.end = k_range.start + 1;
+                    }
+                }
                 _ => {}
             }
-            systems
+            (systems, k_range)
         },
     );
+
+    // Sort/deduplicate systems. If none specified, we default to all systems.
     let mut systems = systems.into_iter().sorted().dedup().collect_vec();
     if systems.is_empty() {
-        systems = vec![System::MockProofSystem];
+        systems = System::all();
     };
-    systems
+
+    (systems, k_range)
 }
 
-fn create_output(systems: &[System]) {
-    if !Path::new(OUTPUT_DIR).exists() {
-        create_dir(OUTPUT_DIR).unwrap();
-    }
-    for system in systems {
-        File::create(system.output_path()).unwrap();
-        File::create(system.verifier_output_path()).unwrap();
-        File::create(system.size_output_path()).unwrap();
-    }
-}
+fn sample<T1, T2, T3>(
+    k: usize,
+    before: impl Fn() -> T1,
+    mut prove: impl FnMut(T1) -> T2,
+    after: impl Fn(T2) -> T3,
+) -> (T3, f64) {
+    let mut sum = Duration::from_millis(0);
 
-fn sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
-    let mut proof = None;
-    let sample_size = sample_size(k);
-    let sum = iter::repeat_with(|| {
+    let pre_data = before();
+    let start = Instant::now();
+    let result = prove(pre_data);
+    sum += start.elapsed();
+    let output = after(result);
+
+    for _ in 1..sample_size(k) {
+        let pre_data = before();
         let start = Instant::now();
-        proof = Some(prove());
-        start.elapsed()
-    })
-    .take(sample_size)
-    .sum::<Duration>();
-    let avg = sum / sample_size as u32;
-    writeln!(&mut system.output(), "{k}, {}", avg.as_millis()).unwrap();
-    proof.unwrap()
-}
-
-fn sample_verifier<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
-    let mut proof = None;
-    let sample_size = sample_size(k);
-    let sum = iter::repeat_with(|| {
-        let start = Instant::now();
-        proof = Some(prove());
-        start.elapsed()
-    })
-    .take(sample_size)
-    .sum::<Duration>();
-    let avg = sum / sample_size as u32;
-    writeln!(&mut system.verifier_output(), "{k}, {}", avg.as_millis()).unwrap();
-    proof.unwrap()
+        prove(pre_data);
+        sum += start.elapsed();
+    }
+    (output, sum.as_millis() as f64 / sample_size(k) as f64)
 }
 
 fn sample_size(k: usize) -> usize {
