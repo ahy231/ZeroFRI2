@@ -1,4 +1,5 @@
 use benchmark::BasefoldParams::BasefoldFri;
+use ff::PrimeField;
 use itertools::Itertools as _;
 use num_bigint::BigInt;
 use plonkish_backend::pcs::mock_pcs::PcsOps;
@@ -15,6 +16,7 @@ use plonkish_backend::{
     util::poly_loader::container::Field as CF,
 };
 use rand::thread_rng;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::from_str;
 use std::collections::HashMap;
@@ -57,25 +59,32 @@ fn main() {
     k_range.for_each(|k| systems.iter().for_each(|system| system.bench(k)));
 }
 
-fn fr_from_str(s: &str) -> Fr {
-    let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-    let mut bytes = [0u8; 32];
-    let bytes_le = bigint.to_bytes_le().1;
-    bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-    Fr::from_bytes(&bytes).unwrap()
+pub trait FieldFromStr: PrimeField + DeserializeOwned {
+    fn from_str(s: &str) -> Self;
+}
+
+impl FieldFromStr for Fr {
+    fn from_str(s: &str) -> Self {
+        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
+        let mut bytes = [0u8; 32];
+        let bytes_le = bigint.to_bytes_le().1;
+        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
+        Fr::from_bytes(&bytes).unwrap()
+    }
 }
 
 fn bench_mock_psys<
+    F: FieldFromStr,
     P: PolynomialCommitmentScheme<
-        Fr,
-        Polynomial = MultilinearPolynomial<Fr>,
+        F,
+        Polynomial = MultilinearPolynomial<F>,
         CommitmentChunk = Output<Blake2s>,
     >,
 >(
     system: &System,
     k: usize,
 ) where
-    <P as PolynomialCommitmentScheme<Fr>>::Commitment: AsRef<[Output<Blake2s>]>,
+    <P as PolynomialCommitmentScheme<F>>::Commitment: AsRef<[Output<Blake2s>]>,
 {
     let loader = Loader::new(CF::Bn254Fr);
     let commit_data = loader.load("mock_data.json");
@@ -85,14 +94,14 @@ fn bench_mock_psys<
         serde_json::from_reader(File::open("mock_pcs_recorder.json").unwrap()).unwrap();
 
     let mut poly_map: HashMap<
-        Vec<String>,                                       // polynomial as string
-        <P as PolynomialCommitmentScheme<Fr>>::Commitment, // commitment
+        Vec<String>,                                      // polynomial as string
+        <P as PolynomialCommitmentScheme<F>>::Commitment, // commitment
     > = HashMap::new();
     let mut verify_data: Vec<(
-        Vec<u8>,                                                // proof
-        Vec<Vec<Fr>>,                                           // points
-        Vec<Fr>,                                                // evals
-        Vec<<P as PolynomialCommitmentScheme<Fr>>::Commitment>, // commitments
+        Vec<u8>,                                               // proof
+        Vec<Vec<F>>,                                           // points
+        Vec<F>,                                                // evals
+        Vec<<P as PolynomialCommitmentScheme<F>>::Commitment>, // commitments
     )> = Vec::new();
     let mut records = Vec::new();
 
@@ -115,7 +124,7 @@ fn bench_mock_psys<
                             commit_data.matrices[0][commit_pointer]
                                 .clone()
                                 .into_iter()
-                                .map(|s| fr_from_str(&s))
+                                .map(|s| F::from_str(&s))
                                 .collect_vec(),
                         );
                         let (comm, duration) =
@@ -137,7 +146,7 @@ fn bench_mock_psys<
                         let matrix_width = commit_data.matrix_widths[0][commit_pointer];
                         let matrix = polys_str
                             .chunks(matrix_width)
-                            .map(|chunk| chunk.iter().map(|s| fr_from_str(&s)).collect_vec())
+                            .map(|chunk| chunk.iter().map(|s| F::from_str(&s)).collect_vec())
                             .collect_vec();
                         let polys = (0..matrix_width)
                             .map(|i| {
@@ -172,7 +181,7 @@ fn bench_mock_psys<
             PcsOps::Open => match size {
                 1 => {
                     let (poly, point, eval) = &commit_data.poly_points[open_pointer];
-                    let poly = from_str::<MultilinearPolynomial<Fr>>(poly).unwrap();
+                    let poly = from_str::<MultilinearPolynomial<F>>(poly).unwrap();
                     let comm = poly_map
                         .get(
                             &poly
@@ -186,9 +195,9 @@ fn bench_mock_psys<
                     let point = point
                         .clone()
                         .into_iter()
-                        .map(|f| fr_from_str(&f))
+                        .map(|f| F::from_str(&f))
                         .collect_vec();
-                    let eval = fr_from_str(eval);
+                    let eval = F::from_str(eval);
 
                     let (proof, duration) = sample(
                         k,
@@ -239,10 +248,10 @@ fn bench_mock_psys<
                             let point = point
                                 .clone()
                                 .into_iter()
-                                .map(|f| fr_from_str(&f))
+                                .map(|f| F::from_str(&f))
                                 .collect_vec();
-                            let eval = fr_from_str(eval);
-                            let poly_str = &from_str::<MultilinearPolynomial<Fr>>(poly)
+                            let eval = F::from_str(eval);
+                            let poly_str = &from_str::<MultilinearPolynomial<F>>(poly)
                                 .unwrap()
                                 .evals()
                                 .into_iter()
@@ -456,8 +465,10 @@ impl System {
 
     fn bench(&self, k: usize) {
         match self {
-            System::ZeromorphFri => bench_mock_psys::<ZeromorphFri<Fri<Fr, Blake2s>>>(self, k),
-            System::Basefold256 => bench_mock_psys::<Basefold<Fr, Blake2s, BasefoldFri>>(self, k),
+            System::ZeromorphFri => bench_mock_psys::<Fr, ZeromorphFri<Fri<Fr, Blake2s>>>(self, k),
+            System::Basefold256 => {
+                bench_mock_psys::<Fr, Basefold<Fr, Blake2s, BasefoldFri>>(self, k)
+            }
         }
     }
 }
