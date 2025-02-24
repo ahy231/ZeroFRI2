@@ -1,14 +1,27 @@
-use benchmark::BasefoldParams::BasefoldFri;
+use benchmark::BasefoldParams::{
+    BasefoldFri, Eighteen, Eleven, Fifteen, Fourteen, Nineteen, Seventeen, Sixteen, Ten, Thirteen,
+    Twelve, Twenty, TwentyFive, TwentyFour, TwentyOne, TwentySix, TwentyThree, TwentyTwo,
+};
 use ff::PrimeField;
+use halo2_proofs::halo2curves::bn256::{Bn256, G1Affine};
+use halo2_proofs::halo2curves::secp256k1::Fp;
 use itertools::Itertools as _;
 use num_bigint::BigInt;
 use plonkish_backend::pcs::mock_pcs::PcsOps;
-use plonkish_backend::pcs::multilinear::Basefold;
+use plonkish_backend::pcs::multilinear::{
+    Basefold, Gemini, MultilinearBrakedown, MultilinearHyrax, MultilinearKzg,
+};
+use plonkish_backend::pcs::univariate::UnivariateKzg;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
 use plonkish_backend::poly::Polynomial;
-use plonkish_backend::util::hash::{Blake2s, Output};
+use plonkish_backend::util::code::{BrakedownSpec1, BrakedownSpec6};
+use plonkish_backend::util::goldilocksMont::GoldilocksMont;
+use plonkish_backend::util::hash::{Blake2s, Keccak256, Output};
+use plonkish_backend::util::new_fields::Mersenne127;
 use plonkish_backend::util::poly_loader::loader::Loader;
-use plonkish_backend::util::transcript::{Blake2sTranscript, InMemoryTranscript};
+use plonkish_backend::util::transcript::{
+    Blake2sTranscript, InMemoryTranscript, Keccak256Transcript, TranscriptRead, TranscriptWrite,
+};
 use plonkish_backend::{
     halo2_curves::bn256::Fr,
     pcs::{multilinear::ZeromorphFri, univariate::Fri},
@@ -61,6 +74,7 @@ fn main() {
 
 pub trait FieldFromStr: PrimeField + DeserializeOwned {
     fn from_str(s: &str) -> Self;
+    fn to_enum() -> CF;
 }
 
 impl FieldFromStr for Fr {
@@ -71,22 +85,67 @@ impl FieldFromStr for Fr {
         bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
         Fr::from_bytes(&bytes).unwrap()
     }
+
+    fn to_enum() -> CF {
+        CF::Bn254Fr
+    }
 }
 
-fn bench_mock_psys<
+impl FieldFromStr for Mersenne127 {
+    fn from_str(s: &str) -> Self {
+        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
+        let mut bytes = [0u8; 16];
+        let bytes_vec = bigint.to_bytes_le().1;
+        bytes[..bytes_vec.len()].copy_from_slice(&bytes_vec);
+        Mersenne127::from_u128(u128::from_le_bytes(bytes))
+    }
+
+    fn to_enum() -> CF {
+        CF::Mersenne127
+    }
+}
+
+impl FieldFromStr for GoldilocksMont {
+    fn from_str(s: &str) -> Self {
+        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
+        let mut bytes = [0u8; 16];
+        let bytes_vec = bigint.to_bytes_le().1;
+        bytes[..bytes_vec.len()].copy_from_slice(&bytes_vec);
+        GoldilocksMont::from_u128(u128::from_le_bytes(bytes))
+    }
+
+    fn to_enum() -> CF {
+        CF::GoldilocksMont
+    }
+}
+
+impl FieldFromStr for Fp {
+    fn from_str(s: &str) -> Self {
+        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
+        let mut bytes = [0u8; 32];
+        let bytes_le = bigint.to_bytes_le().1;
+        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
+        Fp::from_bytes(&bytes).unwrap()
+    }
+
+    fn to_enum() -> CF {
+        CF::Fp
+    }
+}
+
+fn bench_pcs<
     F: FieldFromStr,
-    P: PolynomialCommitmentScheme<
-        F,
-        Polynomial = MultilinearPolynomial<F>,
-        CommitmentChunk = Output<Blake2s>,
-    >,
+    P: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
+    T,
 >(
     system: &System,
     k: usize,
 ) where
-    <P as PolynomialCommitmentScheme<F>>::Commitment: AsRef<[Output<Blake2s>]>,
+    T: TranscriptRead<P::CommitmentChunk, F>
+        + TranscriptWrite<P::CommitmentChunk, F>
+        + InMemoryTranscript<Param = ()>,
 {
-    let loader = Loader::new(CF::Bn254Fr);
+    let loader = Loader::new(F::to_enum());
     let commit_data = loader.load("mock_data.json");
     let mut commit_pointer = 0;
     let mut open_pointer = 0;
@@ -133,12 +192,17 @@ fn bench_mock_psys<
                             commit_data.matrices[0][commit_pointer].clone(),
                             comm.clone(),
                         );
+
+                        let mut transcript = T::new(());
+                        transcript.write_commitment(&comm.as_ref()[0]).unwrap();
+                        let proof = transcript.into_proof();
+
                         records.push(Record {
                             method: ops,
                             poly_num: 1,
                             poly_vars: poly.num_vars(),
                             time: duration,
-                            size: Some(comm.as_ref()[0].len()), // size of commitment, considering comm as [Output<H>] as [[u8]]
+                            size: Some(proof.len()),
                         });
                     }
                     _ => {
@@ -155,9 +219,21 @@ fn bench_mock_psys<
                                 )
                             })
                             .collect_vec();
-                        let (comms, duration) =
-                            sample(k, || (), |_| P::batch_commit(&pp, &polys).unwrap(), |c| c);
-                        let comms_size = comms.iter().map(|c| c.as_ref()[0].len()).sum::<usize>();
+                        let (comms, duration) = sample(
+                            k,
+                            || (),
+                            |_| P::batch_commit(&pp, &polys).unwrap(),
+                            |c: Vec<<P as PolynomialCommitmentScheme<F>>::Commitment>| c,
+                        );
+
+                        let measure_comm_size =
+                            |c: &<P as PolynomialCommitmentScheme<F>>::Commitment| {
+                                let mut transcript = T::new(());
+                                transcript.write_commitment(&c.as_ref()[0]).unwrap();
+                                transcript.into_proof().len()
+                            };
+
+                        let comms_size = comms.iter().map(measure_comm_size).sum::<usize>();
                         for (poly, comm) in polys.clone().into_iter().zip(comms.clone()) {
                             poly_map.insert(
                                 poly.evals()
@@ -201,7 +277,7 @@ fn bench_mock_psys<
 
                     let (proof, duration) = sample(
                         k,
-                        || Blake2sTranscript::default(),
+                        || T::new(()),
                         |mut transcript| {
                             P::open(&pp, &poly, &comm, point.as_ref(), &eval, &mut transcript)
                                 .unwrap();
@@ -260,7 +336,7 @@ fn bench_mock_psys<
                             let comm = poly_map.get(poly_str).unwrap().clone();
 
                             poly_map.insert(
-                                from_str::<MultilinearPolynomial<Fr>>(poly)
+                                from_str::<MultilinearPolynomial<F>>(poly)
                                     .unwrap()
                                     .evals()
                                     .into_iter()
@@ -277,7 +353,7 @@ fn bench_mock_psys<
 
                     let (proof, duration) = sample(
                         k,
-                        || Blake2sTranscript::default(),
+                        || T::new(()),
                         |mut transcript| {
                             P::batch_open(
                                 &pp,
@@ -325,7 +401,7 @@ fn bench_mock_psys<
             1 => {
                 (_, duration) = sample(
                     k,
-                    || Blake2sTranscript::from_proof((), proof.as_slice()),
+                    || T::from_proof((), proof.as_slice()),
                     |mut transcript| {
                         P::verify(&vp, &comms[0], &points[0], &evals[0], &mut transcript).unwrap()
                     },
@@ -340,7 +416,7 @@ fn bench_mock_psys<
                     .collect_vec();
                 (_, duration) = sample(
                     k,
-                    || Blake2sTranscript::from_proof((), proof.as_slice()),
+                    || T::from_proof((), proof.as_slice()),
                     |mut transcript| {
                         P::batch_verify(&vp, &comms, &points, &evals, &mut transcript).unwrap();
                         transcript
@@ -446,13 +522,34 @@ fn bench_mock_psys<
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum System {
-    ZeromorphFri,
+    MultilinearKzg,
     Basefold256,
+    Basefold61Mersenne,
+    BasefoldBlake2s,
+    Brakedown,
+    BrakedownBlake2s,
+    ZeromorphFri,
+    Fri,
+    Circle,
+    Gemini,
+    Hyrax,
 }
 
 impl System {
     fn all() -> Vec<System> {
-        vec![System::ZeromorphFri, System::Basefold256]
+        vec![
+            System::MultilinearKzg,
+            System::Basefold256,
+            System::Basefold61Mersenne,
+            System::BasefoldBlake2s,
+            System::Brakedown,
+            System::BrakedownBlake2s,
+            System::ZeromorphFri,
+            System::Fri,
+            System::Circle,
+            System::Gemini,
+            System::Hyrax,
+        ]
     }
 
     fn detail_output_path(&self, k: usize) -> String {
@@ -464,10 +561,127 @@ impl System {
     }
 
     fn bench(&self, k: usize) {
+        type Kzg = MultilinearKzg<Bn256>;
+        type Brakedown = MultilinearBrakedown<Fp, Keccak256, BrakedownSpec6>;
+        // type Brakedown127 = MultilinearBrakedown<Fp, Blake2s, BrakedownSpec6>;
+        type BrakedownBlake2s = MultilinearBrakedown<GoldilocksMont, Blake2s, BrakedownSpec1>;
+
         match self {
-            System::ZeromorphFri => bench_mock_psys::<Fr, ZeromorphFri<Fri<Fr, Blake2s>>>(self, k),
+            System::ZeromorphFri => {
+                bench_pcs::<Fr, ZeromorphFri<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
+            }
             System::Basefold256 => {
-                bench_mock_psys::<Fr, Basefold<Fr, Blake2s, BasefoldFri>>(self, k)
+                bench_pcs::<Fr, Basefold<_, Blake2s, BasefoldFri>, Blake2sTranscript<_>>(self, k)
+            }
+            System::MultilinearKzg => bench_pcs::<Fr, Kzg, Blake2sTranscript<_>>(self, k),
+            System::Basefold61Mersenne => bench_pcs::<
+                Mersenne127,
+                Basefold<Mersenne127, Blake2s, BasefoldFri>,
+                Blake2sTranscript<_>,
+            >(self, k),
+            System::BasefoldBlake2s => match k {
+                10 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Ten>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                11 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Eleven>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                12 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Twelve>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                13 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Thirteen>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                14 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Fourteen>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                15 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Fifteen>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                16 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Sixteen>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                17 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Seventeen>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                18 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Eighteen>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                19 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Nineteen>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                20 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, Twenty>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                21 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, TwentyOne>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                22 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, TwentyTwo>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                23 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, TwentyThree>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                24 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, TwentyFour>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                25 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, TwentyFive>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                26 => bench_pcs::<
+                    GoldilocksMont,
+                    Basefold<GoldilocksMont, Blake2s, TwentySix>,
+                    Blake2sTranscript<_>,
+                >(self, k),
+                _ => {}
+            },
+            System::Brakedown => bench_pcs::<Fp, Brakedown, Keccak256Transcript<_>>(self, k),
+            System::BrakedownBlake2s => {
+                bench_pcs::<GoldilocksMont, BrakedownBlake2s, Blake2sTranscript<_>>(self, k)
+            }
+            System::Fri => {
+                unimplemented!("Fri is not implemented for mock proof system")
+            }
+            System::Circle => {
+                unimplemented!("Circle is not implemented for mock proof system")
+            }
+            System::Gemini => {
+                bench_pcs::<Fr, Gemini<UnivariateKzg<Bn256>>, Blake2sTranscript<_>>(self, k)
+            }
+            System::Hyrax => {
+                bench_pcs::<Fr, MultilinearHyrax<G1Affine>, Blake2sTranscript<_>>(self, k)
             }
         }
     }
@@ -478,6 +692,15 @@ impl Display for System {
         match self {
             System::ZeromorphFri => write!(f, "zeromorph_fri"),
             System::Basefold256 => write!(f, "basefold256"),
+            System::MultilinearKzg => write!(f, "multilinear_kzg"),
+            System::Basefold61Mersenne => write!(f, "basefold61mersenne"),
+            System::BasefoldBlake2s => write!(f, "basefoldblake2s"),
+            System::Brakedown => write!(f, "brakedown"),
+            System::BrakedownBlake2s => write!(f, "brakedownblake2s"),
+            System::Circle => write!(f, "circle"),
+            System::Gemini => write!(f, "gemini"),
+            System::Hyrax => write!(f, "hyrax"),
+            System::Fri => write!(f, "fri"),
         }
     }
 }
@@ -491,7 +714,18 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "all" => systems = System::all(),
                     "zeromorph_fri" => systems.push(System::ZeromorphFri),
                     "basefold256" => systems.push(System::Basefold256),
-                    _ => panic!("system should be one of {{all,zeromorph_fri,basefold256}}"),
+                    "multilinear_kzg" => systems.push(System::MultilinearKzg),
+                    "basefold61mersenne" => systems.push(System::Basefold61Mersenne),
+                    "basefoldblake2s" => systems.push(System::BasefoldBlake2s),
+                    "brakedown" => systems.push(System::Brakedown),
+                    "brakedownblake2s" => systems.push(System::BrakedownBlake2s),
+                    "circle" => systems.push(System::Circle),
+                    "gemini" => systems.push(System::Gemini),
+                    "hyrax" => systems.push(System::Hyrax),
+                    "fri" => systems.push(System::Fri),
+                    _ => panic!(
+                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne}}"
+                    ),
                 },
                 "--k" => {
                     // Handle either "10..20" or a single integer "12".

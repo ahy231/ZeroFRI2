@@ -1,12 +1,9 @@
 use benchmark::BasefoldParams::*;
 use halo2_proofs::halo2curves::bn256::G1Affine;
 use itertools::{izip, Itertools};
-use num_bigint::BigInt;
 use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
-use p3_bn254_fr::Bn254Fr;
 use p3_challenger::{
     CanObserve, DuplexChallenger, FieldChallenger, HashChallenger, SerializingChallenger32,
-    SerializingChallenger64,
 };
 use p3_circle::CirclePcs;
 use p3_commit::{ExtensionMmcs, Pcs, PolynomialSpace};
@@ -18,10 +15,8 @@ use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_mersenne_31::Mersenne31;
 use p3_symmetric::{
-    CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher32, SerializingHasher64,
-    TruncatedPermutation,
+    CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher32, TruncatedPermutation,
 };
-use p3_util::log2_strict_usize;
 use plonkish_backend::{
     halo2_curves::{
         bn256::{Bn256, Fr},
@@ -43,7 +38,6 @@ use plonkish_backend::{
         goldilocksMont::GoldilocksMont,
         hash::{Blake2s, Blake2s256, Keccak256},
         new_fields::Mersenne127,
-        poly_loader::{container::Field as CF, dumper::Dumper, loader::Loader},
         start_timer,
         transcript::{
             Blake2s256Transcript, Blake2sTranscript, InMemoryTranscript, Keccak256Transcript,

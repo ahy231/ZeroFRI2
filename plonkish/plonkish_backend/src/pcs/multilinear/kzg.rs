@@ -186,8 +186,9 @@ where
                         .for_each(|(eval_hi, last_eval)| *eval_hi = *s_i * last_eval);
                 });
                 parallelize(evals_lo, |(evals_lo, start)| {
-                    izip!(evals_lo, &evals_hi[start..], &last_evals[start..])
-                        .for_each(|(eval_lo, eval_hi, last_eval)| *eval_lo = *last_eval - eval_hi);
+                    izip!(evals_lo, &evals_hi[start..], &last_evals[start..]).for_each(
+                        |(mut eval_lo, eval_hi, last_eval)| *eval_lo = *last_eval - eval_hi,
+                    );
                 });
 
                 eqs.push(evals)
@@ -355,9 +356,6 @@ where
             .chain(Some((comm.0.to_curve() - vp.g1 * eval).into()))
             .chain(quotients.iter().cloned())
             .collect_vec();
-
-
-
 
         M::pairings_product_is_identity(&lhs.iter().zip_eq(rhs.iter()).collect_vec())
             .then_some(())
