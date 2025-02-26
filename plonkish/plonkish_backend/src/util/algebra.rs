@@ -32,7 +32,7 @@ pub fn split_n(mut n: usize) -> Vec<usize> {
     res
 }
 
-fn batch_bit_reverse(log_n: usize) -> Vec<usize> {
+pub fn batch_bit_reverse(log_n: usize) -> Vec<usize> {
     let n = 1 << log_n;
     let mut res = (0..n).into_iter().map(|_| 0).collect::<Vec<usize>>();
     for i in 0..n {

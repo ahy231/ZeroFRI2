@@ -1,7 +1,8 @@
 use crate::util::algebra::field::MyField;
 use rand::Rng;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RandomOracle<T: MyField> {
     pub beta: T,
     pub rlc: T,

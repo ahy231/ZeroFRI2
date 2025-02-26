@@ -1,11 +1,12 @@
 use std::ops::{Add, Mul};
+use serde::{Serialize, Deserialize};
 
 use crate::util::algebra::batch_bit_reverse;
 
 use super::coset::Coset;
 use super::field::MyField;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Polynomial<T: MyField> {
     pub coefficients: Vec<T>,
 }

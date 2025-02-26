@@ -7,13 +7,12 @@ use crate::{
 
 mod basefold;
 mod brakedown;
-pub mod combined_deepfold;
 pub mod combined_virgo;
+pub mod deepfold;
 mod gemini;
 mod hyrax;
 mod ipa;
 mod kzg;
-pub mod virgo;
 mod zeromorph;
 mod zeromorph_fri;
 pub use basefold::{
