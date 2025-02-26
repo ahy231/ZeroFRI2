@@ -268,7 +268,15 @@ $$
     & = (5 \cdot \mathcal{R} + 13) \cdot (2^{d - 1} - 1)  ~ \mathbb{F}_{\mathsf{mul}} +  \mathcal{R} \cdot (2^d - 2) ~\mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
+补充增加关于 Merkle Tree 的计算，对于 $i = d - 1, \ldots, 1$ ， Prover 发送折叠后的向量编码： $\pi_i = \mathsf{fold}^*_{\alpha_i}(\pi_{i + 1})$ ，实际实现中，会发送对应的 Merkle Tree 承诺
+$$
+\mathsf{cm}(\pi_i) = \mathsf{cm}(\mathsf{fold}^*_{\alpha_i}(\pi_{i + 1})) = \mathsf{MT.commit}(\mathsf{fold}^*_{\alpha_i}(\pi_{i + 1}))
+$$
+这里 Merkle Tree 的叶子节点有 $2^i \cdot \mathcal{R}$ 个，记为 $\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})$ ，总记为
 
+$$
+\sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
+$$
 
 
 ### Round 3
@@ -309,7 +317,15 @@ $$
 \begin{aligned}
     & (7 \cdot 2^{d - 1} - 1)  ~ \mathbb{F}_{\mathsf{mul}} + (5 \cdot \mathcal{R} + 13) \cdot (2^{d - 1} - 1)  ~ \mathbb{F}_{\mathsf{mul}} +  \mathcal{R} \cdot (2^d - 2) ~\mathbb{F}_{\mathsf{inv}} \\
     & + \frac{5 \cdot \mathcal{R}}{2} ~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} ~ \mathbb{F}_{\mathsf{inv}} \\
-    = & \left((20 + 5 \mathcal{R}) \cdot 2^{d - 1} - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot 2^d - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}}
+    = & \left((20 + 5 \mathcal{R}) \cdot 2^{d - 1} - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot 2^d - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} \\
+	= & \left((\frac{5}{2} \mathcal{R} + 10) \cdot N - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}}
+\end{aligned}
+$$
+加上关于 Merkle Tree 进行承诺的复杂度，为
+
+$$
+\begin{aligned}
+\left((\frac{5}{2} \mathcal{R} + 10) \cdot N - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
 \end{aligned}
 $$
 
@@ -338,13 +354,14 @@ $$
 \begin{aligned}
     & \quad 3 ~ \mathbb{F} + d ~ H + (3 \cdot (d - 1))~ \mathbb{F} + n_0 ~ \mathbb{F} + l \cdot (2d ~ \mathbb{F} + (\log n_d + \ldots + \log n_1) ~ H) \\
     & = (3d + \mathcal{R} + 2dl) ~ \mathbb{F} +  d ~ H + l (d + \log \mathcal{R} + \ldots + 1 + \log \mathcal{R}) ~ H \\
-    & = (3d + \mathcal{R} + 2dl) ~ \mathbb{F} + \left(d + l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right) \right) ~ H
+    & = (3d + \mathcal{R} + 2dl) ~ \mathbb{F} + \left(d + l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right) \right) ~ H \\
+	& = ((2l + 3)d + \mathcal{R}) ~ \mathbb{F} + \left( \frac{l}{2} \cdot d^2 + \left(\frac{1}{2} \cdot l + \log \mathcal{R} \cdot l + 1\right) \cdot d \right) ~ H 
 \end{aligned}
 $$
 
 > 🤔
 >
-> - [ ] 代码中发送了每次的编码 $\pi_i$ ，实际上并不需要。
+> - [x] 代码中发送了每次的编码 $\pi_i$ ，实际上并不需要。代码中发送了每次求得的编码，$\pi_0, \pi_1, \ldots, \pi_d$ ，实际只用发送要进行 IOPP.query 处对应的值，以及这些编码的承诺。
 
 
 
@@ -546,7 +563,8 @@ $$
     & \quad + (3 \cdot 2^d - 3) ~ \mathbb{F}_{\mathsf{mul}} + 9 ~ \mathbb{F}_{\mathsf{mul}} + 5 ~ \mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}} + \mathbb{F}_{\mathsf{inv}} \\
     = & l \cdot\sum_{i = 1}^{d}\mathsf{MTV}(i + \log \mathcal{R}) + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
     = & l \cdot\sum_{i = 1}^{d}(i + \log \mathcal{R}) ~ H + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
-    = &  l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right)  ~ H + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}}
+    = &  l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right)  ~ H + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
+	= & \left( \frac{l}{2} \cdot d^2 + (l\log \mathcal{R} + \frac{l}{2})d \right)  ~ H + (3 N+ (5l + 9)d - 2) ~ \mathbb{F}_{\mathsf{mul}} + ((2l + 5)d + 1) ~ \mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
 
@@ -555,18 +573,18 @@ $$
 Prover's cost:
 
 $$
-\left((20 + 5 \mathcal{R}) \cdot 2^{d - 1} - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot 2^d - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}}
+\left((\frac{5}{2} \mathcal{R} + 10) \cdot N - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
 $$
 
 Proof size:
 
 $$
-(3d + \mathcal{R} + 2dl) ~ \mathbb{F} + \left(d + l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right) \right) ~ H
+((2l + 3)d + \mathcal{R}) ~ \mathbb{F} + \left( \frac{l}{2} \cdot d^2 + \left(\frac{1}{2} \cdot l + \log \mathcal{R} \cdot l + 1\right) \cdot d \right) ~ H 
 $$
 
 Verifier's cost:
 
 $$
-l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right)  ~ H + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}}
+\left( \frac{l}{2} \cdot d^2 + (l\log \mathcal{R} + \frac{l}{2})d \right)  ~ H + (3 N+ (5l + 9)d - 2) ~ \mathbb{F}_{\mathsf{mul}} + ((2l + 5)d + 1) ~ \mathbb{F}_{\mathsf{inv}}
 $$
 
