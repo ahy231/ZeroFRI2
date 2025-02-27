@@ -2,6 +2,9 @@ use benchmark::{
     espresso,
     halo2::{AggregationCircuit, Sha256Circuit},
 };
+use halo2_proofs::transcript::{
+    Blake2bRead, Blake2bWrite, TranscriptReadBuffer, TranscriptWriterBuffer,
+};
 use itertools::Itertools;
 use plonkish_backend::{
     backend::{self, PlonkishBackend, PlonkishCircuit},
@@ -9,12 +12,14 @@ use plonkish_backend::{
     halo2_curves::bn256::{Bn256, Fr},
     pcs::multilinear::deepfold::Deepfold,
     util::{
-        arithmetic::Field, end_timer, mersenne_61_mont::Mersenne61Mont, start_timer, test::std_rng,
+        algebra::field::mersenne61_ext::Mersenne61Ext,
+        arithmetic::Field,
+        end_timer,
+        mersenne_61_mont::Mersenne61Mont,
+        start_timer,
+        test::std_rng,
+        transcript::{Blake2sTranscript, FiatShamirTranscript, InMemoryTranscript, TranscriptWrite, TranscriptRead},
     },
-};
-
-use halo2_proofs::transcript::{
-    Blake2bRead, Blake2bWrite, TranscriptReadBuffer, TranscriptWriterBuffer,
 };
 
 use std::{
@@ -53,7 +58,7 @@ fn bench_deepfold<C: CircuitExt<F>>(k: usize) {
     let circuit = C::rand(k, std_rng());
     // (2) Convert the random circuit into a Halo2Circuit that DeepfoldBackend can process.
     let circuit = Halo2Circuit::new::<DeepfoldBackend>(k, circuit);
-
+ 
     // (3) Obtain additional circuit info and instance data.
     let circuit_info = circuit.circuit_info().unwrap();
     let instances = circuit.instances();
@@ -71,9 +76,10 @@ fn bench_deepfold<C: CircuitExt<F>>(k: usize) {
     // (6) Proving phase.
     let proof = sample(System::Deepfold, k, || {
         let _timer = start_timer(|| format!("deepfold_prove-{k}"));
-        let mut transcript = Blake2bWrite::init(Vec::new());
+        // Create a transcript (using Blake2sTranscript::default() makes the InMemoryTranscript methods available).
+        let mut transcript = Blake2sTranscript::default();
         DeepfoldBackend::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
-        transcript.finalize()
+        transcript.into_proof()
     });
 
     // (7) Record proof size (in bits).
@@ -83,7 +89,8 @@ fn bench_deepfold<C: CircuitExt<F>>(k: usize) {
     // (8) Verification phase.
     let _timer = start_timer(|| format!("deepfold_verify-{k}"));
     let accept = verifier_sample(System::Deepfold, k, || {
-        let mut transcript = Blake2bRead::init(proof.as_slice());
+        // Recreate a transcript from the proof bytes.
+        let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         DeepfoldBackend::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
     });
     assert!(accept);

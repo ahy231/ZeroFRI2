@@ -1,4 +1,7 @@
 use super::MyField;
+use halo2_curves::ff::{PrimeField};
+use crate::util::{BigUint, {arithmetic::{modulus,Field}}};
+
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::_mulx_u64;
 use rand::Rng;
