@@ -27,7 +27,6 @@ use plonkish_backend::{
     frontend::halo2::{circuit::VanillaPlonk, CircuitExt, Halo2Circuit},
     halo2_curves::{bn256::{Bn256, Fr}, secp256k1::Fp},
     pcs::{
-        // Possibly two different FRI implementations (multilinear vs. univariate).
         multilinear::Gemini,
         univariate::UnivariateKzg,
     },
