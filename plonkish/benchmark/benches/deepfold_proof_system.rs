@@ -81,7 +81,7 @@ fn bench_deepfold<C: CircuitExt<F>>(k: usize) {
         DeepfoldBackend::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         transcript.into_proof()
     });
-
+         
     // (7) Record proof size (in bits).
     let size = proof.len() * 8;
     writeln!(&mut System::Deepfold.size_output(), "{}", size).unwrap();
@@ -213,7 +213,7 @@ impl Display for Circuit {
 /// Example arguments: `--system deepfold --circuit vanilla_plonk --k 10..20`
 fn parse_args() -> (Vec<System>, Circuit, Range<usize>) {
     let (systems, circuit, k_range) = args().chain(Some("".to_string())).tuple_windows().fold(
-        (Vec::new(), Circuit::VanillaPlonk, 10..12),
+        (Vec::new(), Circuit::VanillaPlonk, 10..13),
         |(mut systems, mut circuit, mut k_range), (key, value)| {
             match key.as_str() {
                 "--system" => match value.as_str() {

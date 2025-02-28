@@ -1,3 +1,4 @@
+use crate::util::mersenne_61_mont::Mersenne61Mont;
 use crate::{
     pcs::mock_pcs::MockCommitment,
     poly::multilinear::MultilinearPolynomial,
@@ -8,12 +9,11 @@ use crate::{
     },
     Error,
 };
-
 use crossbeam::queue::ArrayQueue;
 use halo2_curves::{bn256, grumpkin, pasta};
 use std::{
     fmt::Debug,
-    io::{self, Cursor},
+    io::{self, Cursor, Read, Write},
     marker::PhantomData,
 };
 
@@ -126,6 +126,43 @@ impl<F: PrimeField, H: Hash> Default for MockTranscript<F, H> {
 pub struct FiatShamirTranscript<H, S> {
     state: H,
     stream: S,
+}
+
+// Implement the common_commitment method for a 32-byte array.
+impl Transcript<[u8; 32], Mersenne61Mont>
+    for FiatShamirTranscript<Blake2s, std::io::Cursor<Vec<u8>>>
+{
+    fn common_commitment(&mut self, comm: &[u8; 32]) -> Result<(), Error> {
+        self.state.update(comm);
+        Ok(())
+    }
+}
+
+// Implement the TranscriptRead trait for reading a [u8; 32] commitment.
+impl TranscriptRead<[u8; 32], Mersenne61Mont>
+    for FiatShamirTranscript<Blake2s, std::io::Cursor<Vec<u8>>>
+{
+    fn read_commitment(&mut self) -> Result<[u8; 32], Error> {
+        let mut comm = [0u8; 32];
+        self.stream
+            .read_exact(&mut comm)
+            .map_err(|err| Error::Transcript(err.kind(), err.to_string()))?;
+        self.common_commitment(&comm)?;
+        Ok(comm)
+    }
+}
+
+// Implement the TranscriptWrite trait for writing a [u8; 32] commitment.
+impl TranscriptWrite<[u8; 32], Mersenne61Mont>
+    for FiatShamirTranscript<Blake2s, std::io::Cursor<Vec<u8>>>
+{
+    fn write_commitment(&mut self, comm: &[u8; 32]) -> Result<(), Error> {
+        self.common_commitment(comm)?;
+        self.stream
+            .write(comm)
+            .map_err(|err| Error::Transcript(err.kind(), err.to_string()))?;
+        Ok(())
+    }
 }
 
 impl<H: Hash> InMemoryTranscript for FiatShamirTranscript<H, Cursor<Vec<u8>>> {

@@ -120,7 +120,7 @@ impl<T: MyField> Proof<T> {
 
 /// Prover for Deepfold PCS.
 #[derive(Clone)]
-pub struct Prover<T: MyField> {
+pub struct Prover<T: MyField + ff::Field> {
     total_round: usize,
     interpolate_cosets: Vec<Coset<T>>,
     interpolations: Vec<InterpolateValue<T>>,
@@ -133,7 +133,7 @@ pub struct Prover<T: MyField> {
     step: usize,
 }
 
-impl<T: MyField> Prover<T> {
+impl<T: MyField+ ff::Field> Prover<T> {
     pub fn new(
         total_round: usize,
         interpolate_cosets: &Vec<Coset<T>>,
@@ -301,7 +301,7 @@ impl<T: MyField> Prover<T> {
 
 /// Verifier for Deepfold PCS.
 #[derive(Clone)]
-pub struct Verifier<T: MyField> {
+pub struct Verifier<T: MyField + Field> {
     total_round: usize,
     interpolate_cosets: Vec<Coset<T>>,
     polynomial_roots: Vec<MerkleTreeVerifier>,
@@ -315,7 +315,7 @@ pub struct Verifier<T: MyField> {
     step: usize,
 }
 
-impl<T: MyField> Verifier<T> {
+impl<T: MyField + ff::Field> Verifier<T> {
     pub fn new(
         total_round: usize,
         cosets: &Vec<Coset<T>>,
@@ -456,7 +456,7 @@ impl<T: MyField> Verifier<T> {
 
 /// Setup parameters for Deepfold PCS.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeepfoldSetupParam<F: MyField> {
+pub struct DeepfoldSetupParam<F: MyField + ff::Field> {
     pub total_round: usize,
     pub cosets: Vec<Coset<F>>,
     pub oracle: RandomOracle<F>,

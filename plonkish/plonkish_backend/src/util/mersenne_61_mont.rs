@@ -54,7 +54,7 @@ impl MyField for Mersenne61Mont {
     const FIELD_NAME: &'static str = "Mersenne61Mont";
     // For our Mersenne prime p = 2^61 - 1, we have p - 1 = 2 * (2^60 - 1).
     // Hence the highest power-of-two dividing p - 1 is 2, so we set LOG_ORDER = 1.
-    const LOG_ORDER: u64 = 1;
+    const LOG_ORDER: u64 = 27;
 
     /// Constructs a field element from a u64 integer.
     /// This reduces the input modulo the field’s modulus and converts to Montgomery form.

@@ -95,12 +95,12 @@ timer = [
 # [[bench]]
 # name = "p3_proof_system"
 # harness = false
-# [[bench]]
-# name = "deepfold_proof_system"
-# harness = false
 [[bench]]
-name = "virgo_proof_system"
+name = "deepfold_proof_system"
 harness = false
+# [[bench]]
+# name = "virgo_proof_system"
+# harness = false
 # [[bench]]
 # name = "mock_proof_system"
 # harness = false
