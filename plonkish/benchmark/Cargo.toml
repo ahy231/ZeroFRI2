@@ -5,11 +5,14 @@ edition = "2021"
 
 [dependencies]
 rand = { package = "rand", version = "0.8.5" }
+rand_9 = { package = "rand", version = "0.9.0" }
+rand_chacha = "0.9.0"
 itertools = "0.10.5"
 gnuplot = "0.0.37"
 rayon = "1.5.3"
 prettytable = "0.10"
 criterion = "0.5"
+bincode = "1.3"
 
 # plonkish_backend
 plonkish_backend = { path = "../plonkish_backend", features = ["benchmark"] }
@@ -38,27 +41,27 @@ espresso_hyperplonk = { git = "https://github.com/EspressoSystems/hyperplonk", r
 ] }
 
 # plonky3
-p3-air = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-field = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-matrix = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-mersenne-31 = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-util = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-challenger = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-circle = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-commit = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-dft = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-fri = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-blake3 = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-keccak = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-mds = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-poseidon = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-symmetric = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
-p3-bn254-fr = { git = "https://github.com/Plonky3/Plonky3", rev = "04358dda" }
+p3-air = { git = "https://github.com/Plonky3/Plonky3" }
+p3-field = { git = "https://github.com/Plonky3/Plonky3" }
+p3-matrix = { git = "https://github.com/Plonky3/Plonky3" }
+p3-mersenne-31 = { git = "https://github.com/Plonky3/Plonky3" }
+p3-util = { git = "https://github.com/Plonky3/Plonky3" }
+p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3" }
+p3-challenger = { git = "https://github.com/Plonky3/Plonky3" }
+p3-circle = { git = "https://github.com/Plonky3/Plonky3" }
+p3-commit = { git = "https://github.com/Plonky3/Plonky3" }
+p3-dft = { git = "https://github.com/Plonky3/Plonky3" }
+p3-fri = { git = "https://github.com/Plonky3/Plonky3" }
+p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3" }
+p3-blake3 = { git = "https://github.com/Plonky3/Plonky3" }
+p3-keccak = { git = "https://github.com/Plonky3/Plonky3" }
+p3-mds = { git = "https://github.com/Plonky3/Plonky3" }
+p3-merkle-tree = { git = "https://github.com/Plonky3/Plonky3" }
+p3-poseidon = { git = "https://github.com/Plonky3/Plonky3" }
+p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3" }
+p3-monty-31 = { git = "https://github.com/Plonky3/Plonky3" }
+p3-bn254-fr = { git = "https://github.com/Plonky3/Plonky3" }
 serde = { version = "1.0", features = ["derive"] }
 num-bigint = "0.4"
 num-traits = "0.2"
@@ -104,6 +107,8 @@ harness = false
 # [[bench]]
 # name = "mock_proof_system"
 # harness = false
-# 
+# [[bench]]
+# name = "get_mock_data"
+# harness = false
 # [[bin]]
 # name = "plotter"

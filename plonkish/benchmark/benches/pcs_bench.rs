@@ -185,143 +185,143 @@ where
     assert_eq!(result, Ok(()));
 }
 
-fn do_bench_pcs<Val, Challenge, Challenger, P>(
-    k: usize,
-    system: System,
-    (pcs, challenger): &(P, Challenger),
-    log_degrees_by_round: Vec<Vec<usize>>,
-) where
-    P: Pcs<Challenge, Challenger>,
-    P::Domain: PolynomialSpace<Val = Val>,
-    Val: Field,
-    Standard: Distribution<Val>,
-    Challenge: ExtensionField<Val>,
-    Challenger: Clone + CanObserve<P::Commitment> + FieldChallenger<Val>,
-{
-    let num_rounds = log_degrees_by_round.len();
-    let mut rng = thread_rng();
+// fn do_bench_pcs<Val, Challenge, Challenger, P>(
+//     k: usize,
+//     system: System,
+//     (pcs, challenger): &(P, Challenger),
+//     log_degrees_by_round: Vec<Vec<usize>>,
+// ) where
+//     P: Pcs<Challenge, Challenger>,
+//     P::Domain: PolynomialSpace<Val = Val>,
+//     Val: Field,
+//     Standard: Distribution<Val>,
+//     Challenge: ExtensionField<Val>,
+//     Challenger: Clone + CanObserve<P::Commitment> + FieldChallenger<Val>,
+// {
+//     let num_rounds = log_degrees_by_round.len();
+//     let mut rng = thread_rng();
 
-    let mut p_challenger = challenger.clone();
-    let sample_size = sample_size(k);
+//     let mut p_challenger = challenger.clone();
+//     let sample_size = sample_size(k);
 
-    let _timer = start_timer(|| format!("PCS setup -{k}"));
+//     let _timer = start_timer(|| format!("PCS setup -{k}"));
 
-    let mut commit_times = Vec::new();
-    let mut domains_and_polys_by_round = Vec::new();
-    let mut matrix_by_round = Vec::new();
-    for _ in 0..sample_size {
-        let width = 5 + rng.gen_range(0..=10);
-        matrix_by_round.push(RowMajorMatrix::<Val>::rand(&mut rng, 1 << k, width));
-    }
-    for i in 0..sample_size {
-        let start = Instant::now();
-        domains_and_polys_by_round = log_degrees_by_round
-            .iter()
-            .map(|log_degrees| {
-                log_degrees
-                    .iter()
-                    .map(|&log_degree| {
-                        let d = 1 << log_degree;
-                        // random width 5-15
-                        (pcs.natural_domain_for_degree(d), matrix_by_round[i].clone())
-                    })
-                    .collect_vec()
-            })
-            .collect_vec();
-        commit_times.push(start.elapsed());
-    }
-    let sum = commit_times.iter().sum::<Duration>();
-    let avg = sum / sample_size as u32;
-    writeln!(&mut system.commit_output(), "{k}, {}", avg.as_millis()).unwrap();
-    println!(
-        "Commit time for {:?}, k = {k} is {} ms",
-        system,
-        avg.as_millis()
-    );
+//     let mut commit_times = Vec::new();
+//     let mut domains_and_polys_by_round = Vec::new();
+//     let mut matrix_by_round = Vec::new();
+//     for _ in 0..sample_size {
+//         let width = 5 + rng.gen_range(0..=10);
+//         matrix_by_round.push(RowMajorMatrix::<Val>::rand(&mut rng, 1 << k, width));
+//     }
+//     for i in 0..sample_size {
+//         let start = Instant::now();
+//         domains_and_polys_by_round = log_degrees_by_round
+//             .iter()
+//             .map(|log_degrees| {
+//                 log_degrees
+//                     .iter()
+//                     .map(|&log_degree| {
+//                         let d = 1 << log_degree;
+//                         // random width 5-15
+//                         (pcs.natural_domain_for_degree(d), matrix_by_round[i].clone())
+//                     })
+//                     .collect_vec()
+//             })
+//             .collect_vec();
+//         commit_times.push(start.elapsed());
+//     }
+//     let sum = commit_times.iter().sum::<Duration>();
+//     let avg = sum / sample_size as u32;
+//     writeln!(&mut system.commit_output(), "{k}, {}", avg.as_millis()).unwrap();
+//     println!(
+//         "Commit time for {:?}, k = {k} is {} ms",
+//         system,
+//         avg.as_millis()
+//     );
 
-    // Start timing for commit phase
-    let _timer = start_timer(|| format!("commit -{k}"));
+//     // Start timing for commit phase
+//     let _timer = start_timer(|| format!("commit -{k}"));
 
-    let (commits_by_round, data_by_round): (Vec<_>, Vec<_>) = domains_and_polys_by_round
-        .iter()
-        .map(|domains_and_polys| pcs.commit(domains_and_polys.clone()))
-        .unzip();
+//     let (commits_by_round, data_by_round): (Vec<_>, Vec<_>) = domains_and_polys_by_round
+//         .iter()
+//         .map(|domains_and_polys| pcs.commit(domains_and_polys.clone()))
+//         .unzip();
 
-    // Start timing for prove phase
-    let _timer = start_timer(|| format!("prove -{k}"));
+//     // Start timing for prove phase
+//     let _timer = start_timer(|| format!("prove -{k}"));
 
-    assert_eq!(commits_by_round.len(), num_rounds);
-    assert_eq!(data_by_round.len(), num_rounds);
-    p_challenger.observe_slice(&commits_by_round);
+//     assert_eq!(commits_by_round.len(), num_rounds);
+//     assert_eq!(data_by_round.len(), num_rounds);
+//     p_challenger.observe_slice(&commits_by_round);
 
-    let zeta: Challenge = p_challenger.sample_ext_element();
+//     let zeta: Challenge = p_challenger.sample_algebra_element();
 
-    let points_by_round = log_degrees_by_round
-        .iter()
-        .map(|log_degrees| vec![vec![zeta]; log_degrees.len()])
-        .collect_vec();
-    let data_and_points: Vec<_> = data_by_round.iter().zip(points_by_round).collect();
-    let (opening_by_round, proof) = sample(system, k, || {
-        pcs.open(data_and_points.clone(), &mut p_challenger.clone())
-    });
-    assert_eq!(opening_by_round.len(), num_rounds);
+//     let points_by_round = log_degrees_by_round
+//         .iter()
+//         .map(|log_degrees| vec![vec![zeta]; log_degrees.len()])
+//         .collect_vec();
+//     let data_and_points: Vec<_> = data_by_round.iter().zip(points_by_round).collect();
+//     let (opening_by_round, proof) = sample(system, k, || {
+//         pcs.open(data_and_points.clone(), &mut p_challenger.clone())
+//     });
+//     assert_eq!(opening_by_round.len(), num_rounds);
 
-    // Start timing for verify phase
-    let timer = start_timer(|| format!("verify -{k}"));
+//     // Start timing for verify phase
+//     let timer = start_timer(|| format!("verify -{k}"));
 
-    // Verify the proof
-    let mut v_challenger = challenger.clone();
-    v_challenger.observe_slice(&commits_by_round);
-    let verifier_zeta: Challenge = v_challenger.sample_ext_element();
-    assert_eq!(verifier_zeta, zeta);
+//     // Verify the proof
+//     let mut v_challenger = challenger.clone();
+//     v_challenger.observe_slice(&commits_by_round);
+//     let verifier_zeta: Challenge = v_challenger.sample_algebra_element();
+//     assert_eq!(verifier_zeta, zeta);
 
-    let commits_and_claims_by_round = izip!(
-        commits_by_round,
-        domains_and_polys_by_round,
-        opening_by_round
-    )
-    .map(|(commit, domains_and_polys, openings)| {
-        let claims = domains_and_polys
-            .iter()
-            .zip(openings)
-            .map(|((domain, _), mat_openings)| (*domain, vec![(zeta, mat_openings[0].clone())]))
-            .collect_vec();
-        (commit, claims)
-    })
-    .collect_vec();
+//     let commits_and_claims_by_round = izip!(
+//         commits_by_round,
+//         domains_and_polys_by_round,
+//         opening_by_round
+//     )
+//     .map(|(commit, domains_and_polys, openings)| {
+//         let claims = domains_and_polys
+//             .iter()
+//             .zip(openings)
+//             .map(|((domain, _), mat_openings)| (*domain, vec![(zeta, mat_openings[0].clone())]))
+//             .collect_vec();
+//         (commit, claims)
+//     })
+//     .collect_vec();
 
-    assert_eq!(commits_and_claims_by_round.len(), num_rounds);
+//     assert_eq!(commits_and_claims_by_round.len(), num_rounds);
 
-    let now = Instant::now();
-    let verify_result = pcs.verify(commits_and_claims_by_round, &proof, &mut v_challenger);
-    writeln!(
-        &mut system.verify_output(),
-        "{:?}: {:?}",
-        k,
-        now.elapsed().as_millis()
-    )
-    .unwrap();
+//     let now = Instant::now();
+//     let verify_result = pcs.verify(commits_and_claims_by_round, &proof, &mut v_challenger);
+//     writeln!(
+//         &mut system.verify_output(),
+//         "{:?}: {:?}",
+//         k,
+//         now.elapsed().as_millis()
+//     )
+//     .unwrap();
 
-    end_timer(timer);
+//     end_timer(timer);
 
-    // Calculate proof size
-    let mut proof_vec = Vec::new();
-    proof
-        .serialize(&mut serde_json::Serializer::new(&mut proof_vec))
-        .unwrap();
-    let proof_size = proof_vec.len();
-    // Log the results
-    writeln!(
-        &mut system.size_output(),
-        "{:?} {:?} : {:?}",
-        system,
-        k,
-        proof_size
-    )
-    .unwrap();
+//     // Calculate proof size
+//     let mut proof_vec = Vec::new();
+//     proof
+//         .serialize(&mut serde_json::Serializer::new(&mut proof_vec))
+//         .unwrap();
+//     let proof_size = proof_vec.len();
+//     // Log the results
+//     writeln!(
+//         &mut system.size_output(),
+//         "{:?} {:?} : {:?}",
+//         system,
+//         k,
+//         proof_size
+//     )
+//     .unwrap();
 
-    assert!(verify_result.is_ok());
-}
+//     assert!(verify_result.is_ok());
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum System {
@@ -332,8 +332,8 @@ enum System {
     Brakedown,
     BrakedownBlake2s,
     ZeromorphFri,
-    Fri,
-    Circle,
+    // Fri,
+    // Circle,
     Gemini,
     Hyrax,
 }
@@ -348,8 +348,8 @@ impl System {
             System::BasefoldBlake2s,
             System::BrakedownBlake2s,
             System::ZeromorphFri,
-            System::Fri,
-            System::Circle,
+            // System::Fri,
+            // System::Circle,
             System::Gemini,
             System::Hyrax,
         ]
@@ -520,94 +520,6 @@ impl System {
                 ZeromorphFri<Fri<Fr, Blake2s>>,
                 Blake2sTranscript<_>,
             >(k, System::ZeromorphFri),
-            System::Fri => {
-                type Val = BabyBear;
-                type Challenge = BinomialExtensionField<Val, 4>;
-
-                type Perm = Poseidon2BabyBear<16>;
-                type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
-                type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
-
-                type ValMmcs = MerkleTreeMmcs<
-                    <Val as Field>::Packing,
-                    <Val as Field>::Packing,
-                    MyHash,
-                    MyCompress,
-                    8,
-                >;
-                type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
-
-                type Dft = Radix2DitParallel<Val>;
-                type Challenger = DuplexChallenger<Val, Perm, 16, 8>;
-
-                let log_blowup = 4;
-
-                let perm = Perm::new_from_rng_128(&mut OsRng::default());
-                let hash = MyHash::new(perm.clone());
-                let compress = MyCompress::new(perm.clone());
-
-                let val_mmcs = ValMmcs::new(hash, compress);
-                let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
-
-                let fri_config = FriConfig {
-                    log_blowup,
-                    log_final_poly_len: 0,
-                    num_queries: 10,
-                    proof_of_work_bits: 8,
-                    mmcs: challenge_mmcs,
-                };
-                let pcs = TwoAdicFriPcs::<Val, Dft, ValMmcs, ChallengeMmcs>::new(
-                    Dft::default(),
-                    val_mmcs,
-                    fri_config,
-                );
-
-                do_bench_pcs(
-                    k,
-                    System::Fri,
-                    &(pcs, Challenger::new(perm.clone())),
-                    vec![vec![k; repetition]; rounds],
-                );
-            }
-            System::Circle => {
-                type Val = Mersenne31;
-                type Challenge = BinomialExtensionField<Mersenne31, 3>;
-
-                type ByteHash = Keccak256Hash;
-                type FieldHash = SerializingHasher32<ByteHash>;
-                let byte_hash = ByteHash {};
-                let field_hash = FieldHash::new(byte_hash);
-
-                type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
-                let compress = MyCompress::new(byte_hash);
-
-                type ValMmcs = MerkleTreeMmcs<Val, u8, FieldHash, MyCompress, 32>;
-                let val_mmcs = ValMmcs::new(field_hash, compress);
-
-                type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
-                let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
-
-                type Challenger = SerializingChallenger32<Val, HashChallenger<u8, ByteHash, 32>>;
-
-                let fri_config = create_test_fri_config(challenge_mmcs);
-
-                type Pcs = CirclePcs<Val, ValMmcs, ChallengeMmcs>;
-                let pcs = Pcs {
-                    mmcs: val_mmcs,
-                    fri_config,
-                    _phantom: PhantomData,
-                };
-
-                let byte_hash = ByteHash {};
-                let chal = Challenger::from_hasher(vec![], byte_hash);
-
-                do_bench_pcs(
-                    k,
-                    System::Circle,
-                    &(pcs, chal),
-                    vec![vec![k; repetition]; rounds],
-                );
-            }
             System::Gemini => {
                 bench_pcs::<Fr, Gemini<UnivariateKzg<Bn256>>, Blake2sTranscript<_>>(
                     k,
@@ -631,8 +543,8 @@ impl Display for System {
             System::BrakedownBlake2s => write!(f, "brakedown_blake"),
             System::BasefoldBlake2s => write!(f, "basefold_blake"),
             System::ZeromorphFri => write!(f, "zeromorph_fri"),
-            System::Fri => write!(f, "fri"),
-            System::Circle => write!(f, "circle"),
+            // System::Fri => write!(f, "fri"),
+            // System::Circle => write!(f, "circle"),
             System::Gemini => write!(f, "gemini"),
             System::Hyrax => write!(f, "hyrax"),
         }
