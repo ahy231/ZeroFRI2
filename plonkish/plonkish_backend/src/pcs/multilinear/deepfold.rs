@@ -2,11 +2,8 @@ use crate::{
     pcs::{Evaluation, Point, PolynomialCommitmentScheme},
     poly::multilinear::MultilinearPolynomial,
     util::{
+        algebra::{coset::Coset, polynomial::Polynomial},
         algebra::{field::MyField, CODE_RATE, SECURITY_BITS, STEP},
-        algebra::{
-            coset::Coset,
-            polynomial::Polynomial,
-        },
         interpolation::InterpolateValue,
         merkle_tree::{MerkleTreeVerifier, MERKLE_ROOT_SIZE},
         query_result::QueryResult,
@@ -15,10 +12,10 @@ use crate::{
     },
     Error,
 };
+use ff::Field;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, mem::size_of};
-use ff::Field;
 
 //
 // ======================= Deepfold PCS Logic (Inlined) =======================
@@ -58,7 +55,8 @@ impl<T: MyField> DeepEval<T> {
     pub fn append_else_eval(&mut self, poly_hypercube: Vec<T>) {
         let mut point = self.point[self.else_evals.len()..].to_vec();
         point[0] += T::from_int(1);
-        self.else_evals.push(Self::evaluation_at(point, poly_hypercube));
+        self.else_evals
+            .push(Self::evaluation_at(point, poly_hypercube));
     }
 
     pub fn verify(&self, challenges: &Vec<T>) -> T {
@@ -133,7 +131,7 @@ pub struct Prover<T: MyField + ff::Field> {
     step: usize,
 }
 
-impl<T: MyField+ ff::Field> Prover<T> {
+impl<T: MyField + ff::Field> Prover<T> {
     pub fn new(
         total_round: usize,
         interpolate_cosets: &Vec<Coset<T>>,
@@ -153,7 +151,10 @@ impl<T: MyField+ ff::Field> Prover<T> {
                 1 << step,
             )],
             hypercube_interpolation: hypercube_interpolation.clone(),
-            deep_eval: vec![DeepEval::new(point.clone(), hypercube_interpolation.clone())],
+            deep_eval: vec![DeepEval::new(
+                point.clone(),
+                hypercube_interpolation.clone(),
+            )],
             shuffle_eval: None,
             oracle: oracle.clone(),
             final_value: None,
@@ -202,8 +203,10 @@ impl<T: MyField+ ff::Field> Prover<T> {
 
     pub fn prove(&mut self, point: Vec<T>) {
         let mut hypercube_interpolation = self.hypercube_interpolation.clone();
-        self.shuffle_eval =
-            Some(DeepEval::new(point.clone(), hypercube_interpolation.clone()));
+        self.shuffle_eval = Some(DeepEval::new(
+            point.clone(),
+            hypercube_interpolation.clone(),
+        ));
         for i in 0..self.total_round / self.step + 1 {
             let mut challenges: Vec<T> = vec![];
             for j in 0..self.step {
@@ -478,13 +481,21 @@ where
     type CommitmentChunk = [u8; MERKLE_ROOT_SIZE];
 
     fn setup(poly_size: usize, _batch_size: usize, _rng: impl RngCore) -> Result<Self::Param, Error> {
-        // Here, poly_size represents the number of variables.
-        let total_round = poly_size;
-        let base_size = 1 << (poly_size + CODE_RATE);
+        // poly_size is the polynomial size computed as 1 << (num_vars)
+        // Recover the actual number of variables (k) as log2(poly_size).
+        let num_vars = poly_size.trailing_zeros() as usize;
+        println!("Recovered num_vars (k): {}", num_vars);
+    
+        // total_round is defined to be the number of variables.
+        let total_round = num_vars;
+    
+        // Incorporate CODE_RATE: the intended base domain should be 1 << (num_vars + CODE_RATE)
+        let base_size = 1 << (num_vars + CODE_RATE);
         let one = F::from_int(1);
         let coset0 = Coset::new(base_size, one);
         let mut cosets = vec![coset0];
-        for _ in 1..=poly_size {
+        // Generate one coset per variable (i.e. for each round)
+        for _ in 1..=num_vars {
             let last = cosets.last().unwrap();
             cosets.push(last.pow(2));
         }
@@ -508,7 +519,13 @@ where
     }
 
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
-        let prover = Prover::new(pp.total_round, &pp.cosets, poly.clone(), &pp.oracle, pp.step);
+        let prover = Prover::new(
+            pp.total_round,
+            &pp.cosets,
+            poly.clone(),
+            &pp.oracle,
+            pp.step,
+        );
         Ok(prover.commit_polynomial())
     }
 
@@ -516,7 +533,10 @@ where
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
     ) -> Result<Vec<Self::Commitment>, Error> {
-        polys.into_iter().map(|poly| Self::commit(pp, poly)).collect()
+        polys
+            .into_iter()
+            .map(|poly| Self::commit(pp, poly))
+            .collect()
     }
 
     fn open(
@@ -528,7 +548,13 @@ where
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
         // Generate a full Deepfold proof at the specified opening point.
-        let mut prover = Prover::new(pp.total_round, &pp.cosets, poly.clone(), &pp.oracle, pp.step);
+        let mut prover = Prover::new(
+            pp.total_round,
+            &pp.cosets,
+            poly.clone(),
+            &pp.oracle,
+            pp.step,
+        );
         let proof = prover.generate_proof(point.clone());
         if proof.evaluation != *eval {
             return Err(Error::InvalidPcsParam(format!(
@@ -554,10 +580,8 @@ where
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
         let polys: Vec<_> = polys.into_iter().collect();
-        for ((poly, _comm), (point, eval)) in polys
-            .iter()
-            .zip(comms)
-            .zip(points.iter().zip(evals.iter()))
+        for ((poly, _comm), (point, eval)) in
+            polys.iter().zip(comms).zip(points.iter().zip(evals.iter()))
         {
             Self::open(pp, poly, _comm, point, &eval.value, transcript)?;
         }
@@ -613,9 +637,17 @@ where
             final_value,
             final_poly: Polynomial::new(vec![]),
         };
-        let verifier = Verifier::new(vp.total_round, &vp.cosets, _comm.clone(), &vp.oracle, vp.step);
+        let verifier = Verifier::new(
+            vp.total_round,
+            &vp.cosets,
+            _comm.clone(),
+            &vp.oracle,
+            vp.step,
+        );
         if !verifier.verify(proof) {
-            return Err(Error::InvalidPcsParam("Deepfold verification failed".into()));
+            return Err(Error::InvalidPcsParam(
+                "Deepfold verification failed".into(),
+            ));
         }
         Ok(())
     }

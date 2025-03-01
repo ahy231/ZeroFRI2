@@ -213,7 +213,7 @@ impl Display for Circuit {
 /// Example arguments: `--system deepfold --circuit vanilla_plonk --k 10..20`
 fn parse_args() -> (Vec<System>, Circuit, Range<usize>) {
     let (systems, circuit, k_range) = args().chain(Some("".to_string())).tuple_windows().fold(
-        (Vec::new(), Circuit::VanillaPlonk, 10..13),
+        (Vec::new(), Circuit::VanillaPlonk, 10..15),
         |(mut systems, mut circuit, mut k_range), (key, value)| {
             match key.as_str() {
                 "--system" => match value.as_str() {
