@@ -18,6 +18,7 @@ use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
 use std::iter::{Product, Sum};
 use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
+use subtle::{ConditionallySelectable, ConstantTimeEq};
 // Note: Struct FakeExtension and it's implementation was added by sec-bit to use bn254 field in FRI.
 // It is not a part of Plonky3 source code.
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -25,11 +26,121 @@ pub struct FakeExtension {
     pub value: MyFr,
 }
 
+impl From<MyFr> for FakeExtension {
+    fn from(value: MyFr) -> Self {
+        FakeExtension { value }
+    }
+}
+
 unsafe impl Send for FakeExtension {}
 unsafe impl Sync for FakeExtension {}
 
 #[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct MyFr(pub Bn254Fr);
+
+impl ConstantTimeEq for MyFr {
+    fn ct_eq(&self, other: &Self) -> subtle::Choice {
+        self.0.value.ct_eq(&other.0.value)
+    }
+}
+impl ConditionallySelectable for MyFr {
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        MyFr(Bn254Fr {
+            value: FFBn254Fr::conditional_select(&a.0.value, &b.0.value, choice),
+        })
+    }
+}
+
+impl ff::Field for MyFr {
+    const ZERO: Self = MyFr(Bn254Fr {
+        value: FFBn254Fr::ZERO,
+    });
+
+    const ONE: Self = MyFr(Bn254Fr {
+        value: FFBn254Fr::ONE,
+    });
+
+    fn random(rng: impl rand::RngCore) -> Self {
+        MyFr(Bn254Fr {
+            value: FFBn254Fr::random(rng),
+        })
+    }
+
+    fn square(&self) -> Self {
+        MyFr(Bn254Fr {
+            value: FFBn254Fr::square(&self.0.value),
+        })
+    }
+
+    fn double(&self) -> Self {
+        MyFr(Bn254Fr {
+            value: FFBn254Fr::double(&self.0.value),
+        })
+    }
+
+    fn invert(&self) -> subtle::CtOption<Self> {
+        subtle::CtOption::new(
+            MyFr(Bn254Fr {
+                value: FFBn254Fr::invert(&self.0.value).unwrap(),
+            }),
+            subtle::Choice::from(true as u8),
+        )
+    }
+
+    fn sqrt_ratio(num: &Self, div: &Self) -> (subtle::Choice, Self) {
+        let (choice, value) = FFBn254Fr::sqrt_ratio(&num.0.value, &div.0.value);
+        (choice, MyFr(Bn254Fr { value }))
+    }
+}
+
+impl ff::PrimeField for MyFr {
+    type Repr = <FFBn254Fr as ff::PrimeField>::Repr;
+
+    fn from_repr(repr: Self::Repr) -> subtle::CtOption<Self> {
+        subtle::CtOption::new(
+            MyFr(Bn254Fr {
+                value: FFBn254Fr::from_repr(repr).unwrap(),
+            }),
+            subtle::Choice::from(true as u8),
+        )
+    }
+
+    fn to_repr(&self) -> Self::Repr {
+        self.0.value.to_repr()
+    }
+
+    fn is_odd(&self) -> subtle::Choice {
+        self.0.value.is_odd()
+    }
+
+    const MODULUS: &'static str = FFBn254Fr::MODULUS;
+
+    const NUM_BITS: u32 = FFBn254Fr::NUM_BITS;
+
+    const CAPACITY: u32 = FFBn254Fr::CAPACITY;
+
+    const TWO_INV: Self = MyFr(Bn254Fr {
+        value: FFBn254Fr::TWO_INV,
+    });
+
+    const MULTIPLICATIVE_GENERATOR: Self = MyFr(Bn254Fr {
+        value: FFBn254Fr::MULTIPLICATIVE_GENERATOR,
+    });
+
+    const S: u32 = FFBn254Fr::S;
+
+    const ROOT_OF_UNITY: Self = MyFr(Bn254Fr {
+        value: FFBn254Fr::ROOT_OF_UNITY,
+    });
+
+    const ROOT_OF_UNITY_INV: Self = MyFr(Bn254Fr {
+        value: FFBn254Fr::ROOT_OF_UNITY_INV,
+    });
+
+    const DELTA: Self = MyFr(Bn254Fr {
+        value: FFBn254Fr::DELTA,
+    });
+}
 
 impl TwoAdicField for MyFr {
     const TWO_ADICITY: usize = Bn254Fr::TWO_ADICITY;
@@ -106,6 +217,30 @@ impl SubAssign<MyFr> for FakeExtension {
     }
 }
 
+impl Mul<&MyFr> for MyFr {
+    type Output = MyFr;
+
+    fn mul(self, rhs: &MyFr) -> Self::Output {
+        MyFr(self.0 * rhs.0)
+    }
+}
+
+impl Add<&MyFr> for MyFr {
+    type Output = MyFr;
+
+    fn add(self, rhs: &MyFr) -> Self::Output {
+        MyFr(self.0 + rhs.0)
+    }
+}
+
+impl Sub<&MyFr> for MyFr {
+    type Output = MyFr;
+
+    fn sub(self, rhs: &MyFr) -> Self::Output {
+        MyFr(self.0 - rhs.0)
+    }
+}
+
 impl Mul<MyFr> for FakeExtension {
     type Output = Self;
     fn mul(self, rhs: MyFr) -> Self {
@@ -118,12 +253,6 @@ impl Mul<MyFr> for FakeExtension {
 impl MulAssign<MyFr> for FakeExtension {
     fn mul_assign(&mut self, rhs: MyFr) {
         self.value.0 *= rhs.0;
-    }
-}
-
-impl From<MyFr> for FakeExtension {
-    fn from(value: MyFr) -> Self {
-        FakeExtension { value }
     }
 }
 
@@ -272,14 +401,32 @@ impl MulAssign for MyFr {
     }
 }
 
+impl<'a> MulAssign<&'a MyFr> for MyFr {
+    fn mul_assign(&mut self, rhs: &'a MyFr) {
+        self.0 *= rhs.0;
+    }
+}
+
 impl AddAssign for MyFr {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
     }
 }
 
+impl<'a> AddAssign<&'a MyFr> for MyFr {
+    fn add_assign(&mut self, rhs: &'a MyFr) {
+        self.0 += rhs.0;
+    }
+}
+
 impl SubAssign for MyFr {
     fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0;
+    }
+}
+
+impl<'a> SubAssign<&'a MyFr> for MyFr {
+    fn sub_assign(&mut self, rhs: &'a MyFr) {
         self.0 -= rhs.0;
     }
 }
@@ -298,9 +445,29 @@ impl Product for MyFr {
     }
 }
 
+impl<'a> Product<&'a MyFr> for MyFr {
+    fn product<I: Iterator<Item = &'a MyFr>>(iter: I) -> Self {
+        let mut t = Self::ONE;
+        for x in iter {
+            t *= x;
+        }
+        t
+    }
+}
+
 impl Sum for MyFr {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(|x, y| x + y).unwrap_or(Self::ZERO)
+    }
+}
+
+impl<'a> Sum<&'a MyFr> for MyFr {
+    fn sum<I: Iterator<Item = &'a MyFr>>(iter: I) -> Self {
+        let mut t = Self::ZERO;
+        for x in iter {
+            t += x;
+        }
+        t
     }
 }
 
