@@ -81,10 +81,10 @@ where
 
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
         let mut evals = poly.evals();
-        let (coeffs, evals_) = interpolate_over_boolean_hypercube_with_copy(&evals.to_vec());
+        // let (coeffs, evals_) = interpolate_over_boolean_hypercube_with_copy(&evals.to_vec());
         //	println!("after interp");
 
-        let poly = UnivariatePolynomial::new(coeffs);
+        let poly = UnivariatePolynomial::new(evals.to_vec());
         Fri::commit(&pp.commit_pp, &poly)
     }
 
@@ -112,6 +112,7 @@ where
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
         let num_vars = poly.num_vars();
+        let uni_poly = UnivariatePolynomial::new(poly.evals().to_vec());
 
         if cfg!(feature = "sanity-check") {
             assert_eq!(poly.evaluate(point), *f_eval);
@@ -139,6 +140,18 @@ where
             assert_eq!(f_eval_at_x, f_eval.evaluate(&x));
         }
 
+        let uni_poly = UnivariatePolynomial::new(poly.evals().to_vec());
+        let uni_poly_eval = uni_poly.evaluate(&x);
+        transcript.write_field_element(&uni_poly_eval);
+        Fri::<F, H>::open(
+            &pp.commit_pp,
+            &uni_poly,
+            &comm,
+            &x,
+            &uni_poly_eval,
+            transcript,
+        )?;
+
         let q_evals = quotients.iter().map(|q| q.evaluate(&x)).collect_vec();
         transcript.write_field_elements(&q_evals);
 
@@ -159,6 +172,29 @@ where
             transcript,
         )
     }
+
+    // fn batch_open<'a>(
+    //     pp: &Self::ProverParam,
+    //     polys: impl IntoIterator<Item = &'a Self::Polynomial>,
+    //     comms: impl IntoIterator<Item = &'a Self::Commitment>,
+    //     points: &[Point<F, Self::Polynomial>],
+    //     evals: &[Evaluation<F>],
+    //     transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+    // ) -> Result<(), Error> {
+    //     let polys = polys.into_iter().collect_vec();
+    //     let comms = comms.into_iter().collect_vec();
+    //     let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
+
+    //     for e in evals {
+    //         let poly = polys[e.poly()];
+    //         let comm = comms[e.poly()];
+    //         let point = &points[e.poly()];
+    //         let eval = e.value();
+    //         Self::open(pp, poly, comm, point, eval, transcript)?;
+    //     }
+
+    //     Ok(())
+    // }
 
     fn batch_open<'a>(
         pp: &Self::ProverParam,
@@ -286,6 +322,30 @@ where
 
         let x = transcript.squeeze_challenge();
 
+        let mut fri_polys = Vec::with_capacity(polys.len());
+        let mut fri_evals = Vec::with_capacity(evals.len());
+        for poly in &polys {
+            let uni_poly = UnivariatePolynomial::new(poly.evals().to_vec());
+            let uni_poly_eval = uni_poly.evaluate(&x);
+            transcript.write_field_element(&uni_poly_eval);
+            fri_polys.push(uni_poly);
+            fri_evals.push(uni_poly_eval);
+        }
+
+        Fri::<F, H>::batch_open(
+            &pp.commit_pp,
+            &fri_polys,
+            comms.clone(),
+            &vec![x; fri_polys.len()],
+            fri_evals
+                .iter()
+                .enumerate()
+                .map(|(idx, eval)| Evaluation::new(idx, idx, *eval))
+                .collect_vec()
+                .as_slice(),
+            transcript,
+        )?;
+
         let q_evals = quotients.iter().map(|q| q.evaluate(&x)).collect_vec();
         transcript.write_field_elements(&q_evals);
         Fri::<F, H>::batch_open(
@@ -380,19 +440,17 @@ where
 
         let q_comms = Fri::<F, H>::read_commitments(&vp.vp, num_vars, transcript)?;
 
-        let y = transcript.squeeze_challenge();
-
-        let q_hat_comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
-
         let x = transcript.squeeze_challenge();
 
         let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
 
-        let comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
+        let uni_poly_eval = transcript.read_field_element().unwrap();
+        Fri::verify(&vp.vp, &comm, &x, &uni_poly_eval, transcript)?;
 
         //check consistency of all commitments vis-a-vis batch commitments
 
         let q_evals = transcript.read_field_elements(num_vars).unwrap();
+        let comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
         let mut f_eval_at_x = eval_scalar * eval;
         izip!(&q_evals, &q_scalars).for_each(|(q, scalar)| f_eval_at_x += *scalar * *q);
         Fri::verify(&vp.vp, &comm[0], &x, &f_eval_at_x, transcript)?;
@@ -410,6 +468,27 @@ where
             transcript,
         )
     }
+
+    // fn batch_verify<'a>(
+    //     vp: &Self::VerifierParam,
+    //     comms: impl IntoIterator<Item = &'a Self::Commitment>,
+    //     points: &[Point<F, Self::Polynomial>],
+    //     evals: &[Evaluation<F>],
+    //     transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+    // ) -> Result<(), Error>
+    // where
+    //     Self::Commitment: 'a,
+    // {
+    //     let comms = comms.into_iter().collect_vec();
+    //     for e in evals {
+    //         let comm = &comms[e.poly()];
+    //         let point = &points[e.poly()];
+    //         let eval = e.value();
+    //         Self::verify(vp, comm, point, eval, transcript)?;
+    //     }
+
+    //     Ok(())
+    // }
 
     fn batch_verify<'a>(
         vp: &Self::VerifierParam,
@@ -444,6 +523,20 @@ where
         let q_comms = Fri::<F, H>::read_commitments(&vp.vp, num_vars, transcript)?;
 
         let x = transcript.squeeze_challenge();
+
+        let uni_evals = transcript.read_field_elements(comms.len()).unwrap();
+        Fri::<F, H>::batch_verify(
+            &vp.vp,
+            comms.clone(),
+            &vec![x; comms.len()],
+            &uni_evals
+                .iter()
+                .enumerate()
+                .map(|(idx, eval)| Evaluation::new(idx, idx, *eval))
+                .collect_vec()
+                .as_slice(),
+            transcript,
+        )?;
 
         let q_evals = transcript.read_field_elements(num_vars).unwrap();
         Fri::<F, H>::batch_verify(
