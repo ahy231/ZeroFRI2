@@ -9,6 +9,7 @@ mod basefold;
 mod brakedown;
 pub mod combined_virgo;
 pub mod deepfold;
+pub mod virgo;
 mod gemini;
 mod hyrax;
 mod ipa;

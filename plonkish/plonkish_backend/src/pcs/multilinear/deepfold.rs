@@ -261,7 +261,6 @@ impl<T: MyField + ff::Field> Prover<T> {
             }
         }
     }
-
     pub fn query(&self) -> Vec<QueryResult<T>> {
         let mut res = vec![];
         let mut leaf_indices = self.oracle.query_list.clone();
@@ -282,7 +281,6 @@ impl<T: MyField + ff::Field> Prover<T> {
     pub fn generate_proof(mut self, point: Vec<T>) -> Proof<T> {
         self.prove(point);
         let query_result = self.query();
-        let shuffle_eval = self.shuffle_eval.as_ref().unwrap();
         Proof {
             merkle_root: (1..self.total_round / self.step)
                 .into_iter()
@@ -294,10 +292,10 @@ impl<T: MyField + ff::Field> Prover<T> {
                 .iter()
                 .map(|x| (x.first_eval, x.else_evals.clone()))
                 .collect(),
-            shuffle_evals: shuffle_eval.else_evals.clone(),
+            shuffle_evals: self.shuffle_eval.as_ref().unwrap().else_evals.clone(),
             final_value: self.final_value.unwrap(),
             final_poly: self.final_poly.unwrap(),
-            evaluation: shuffle_eval.first_eval,
+            evaluation: self.shuffle_eval.as_ref().unwrap().first_eval,
         }
     }
 }
@@ -480,15 +478,17 @@ where
     type Commitment = Commit<F>;
     type CommitmentChunk = [u8; MERKLE_ROOT_SIZE];
 
-    fn setup(poly_size: usize, _batch_size: usize, _rng: impl RngCore) -> Result<Self::Param, Error> {
-        // poly_size is the polynomial size computed as 1 << (num_vars)
-        // Recover the actual number of variables (k) as log2(poly_size).
+    fn setup(
+        poly_size: usize,
+        _batch_size: usize,
+        _rng: impl RngCore,
+    ) -> Result<Self::Param, Error> {
+        
         let num_vars = poly_size.trailing_zeros() as usize;
-        println!("Recovered num_vars (k): {}", num_vars);
-    
+
         // total_round is defined to be the number of variables.
         let total_round = num_vars;
-    
+
         // Incorporate CODE_RATE: the intended base domain should be 1 << (num_vars + CODE_RATE)
         let base_size = 1 << (num_vars + CODE_RATE);
         let one = F::from_int(1);
