@@ -2,38 +2,30 @@ use benchmark::BasefoldParams::{
     BasefoldFri, Eighteen, Eleven, Fifteen, Fourteen, Nineteen, Seventeen, Sixteen, Ten, Thirteen,
     Twelve, Twenty, TwentyFive, TwentyFour, TwentyOne, TwentySix, TwentyThree, TwentyTwo,
 };
-use ff::derive::bitvec::vec;
 use ff::{BatchInvert, Field, PrimeField};
 use halo2_proofs::halo2curves::bn256::{Bn256, G1Affine};
 use halo2_proofs::halo2curves::secp256k1::Fp;
 use itertools::{izip, Itertools as _};
 use num_bigint::BigInt;
-use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_bn254_fr::{Bn254Fr, FFBn254Fr};
-use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
-use p3_circle::CirclePcs;
-use p3_commit::{Mmcs, Pcs, PolynomialSpace};
+use p3_challenger::FieldChallenger;
+use p3_matrix::Matrix;
 use plonkish_backend::piop::sum_check::classic::{ClassicSumCheck, CoefficientsProver};
 use plonkish_backend::piop::sum_check::{eq_xy_eval, SumCheck, VirtualPolynomial};
 use plonkish_backend::poly::univariate::UnivariatePolynomial;
 use plonkish_backend::util::arithmetic::{inner_product, squares};
 use plonkish_backend::util::expression::{Expression, Query, Rotation};
 use plonkish_backend::util::fake_extension::{FakeExtension, MyFr};
-use plonkish_backend::util::transcript::{FieldTranscript, FieldTranscriptWrite as _};
+use plonkish_backend::util::transcript::FieldTranscript;
 
-use p3_challenger::{DuplexChallenger, HashChallenger, SerializingChallenger32};
-use p3_commit::{ExtensionMmcs, TwoAdicMultiplicativeCoset};
+use p3_challenger::{HashChallenger, SerializingChallenger32};
+use p3_commit::ExtensionMmcs;
 use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
-use p3_field::extension::BinomialExtensionField;
-use p3_field::{ExtensionField, TwoAdicField};
 use p3_fri::{FriConfig, TwoAdicFriPcs};
 use p3_keccak::Keccak256Hash;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
-use p3_mersenne_31::Mersenne31;
-use p3_symmetric::{
-    CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher32, TruncatedPermutation,
-};
+use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use plonkish_backend::pcs::mock_pcs::PcsOps;
 use plonkish_backend::pcs::multilinear::deepfold::Deepfold;
@@ -46,7 +38,7 @@ use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
 use plonkish_backend::poly::Polynomial;
 use plonkish_backend::util::code::{BrakedownSpec1, BrakedownSpec6};
 use plonkish_backend::util::goldilocksMont::GoldilocksMont;
-use plonkish_backend::util::hash::{Blake2s, Keccak256, Output};
+use plonkish_backend::util::hash::{Blake2s, Keccak256};
 use plonkish_backend::util::mersenne_61_mont::Mersenne61Mont;
 use plonkish_backend::util::new_fields::Mersenne127;
 use plonkish_backend::util::parallel::parallelize;
@@ -62,16 +54,12 @@ use plonkish_backend::{
 };
 
 use rand::thread_rng;
-use rand_9::Rng;
-use rand_9::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::from_str;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::ops::{AddAssign, Deref as _, Range};
 use std::ptr::addr_of;
 use std::{
@@ -697,7 +685,7 @@ fn bench_fri(system: &System, k: usize) {
         Vec<String>, // polynomial as string
         Vec<String>, // matrix as string
     > = HashMap::new();
-    // let mut proof_viele_rounds = Vec::new();
+    let mut verifier_data = Vec::new();
     let mut records: Vec<Record> = Vec::new();
 
     // setup
@@ -718,6 +706,8 @@ fn bench_fri(system: &System, k: usize) {
 
     let pcs = FriPcs::new(Dft::default(), val_mmcs, fri_config);
 
+    let mut poly_len = 0;
+
     // commit and open
     for (ops, size) in instructions {
         match ops {
@@ -728,13 +718,13 @@ fn bench_fri(system: &System, k: usize) {
                     <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::natural_domain_for_degree(
                         &pcs, degree,
                     );
-                let mle_evals = matrix_str
-                    .clone()
-                    .into_iter()
-                    .map(|s| Val::from_str(&s))
-                    .collect_vec()
-                    .chunks_exact(commit_data.matrix_widths[0][commit_pointer])
-                    .map(|chunk| chunk.to_vec())
+                let matrix_width = commit_data.matrix_widths[0][commit_pointer];
+                let matrix = matrix_str
+                    .chunks(matrix_width)
+                    .map(|chunk| chunk.iter().map(|s| Val::from_str(&s)).collect_vec())
+                    .collect_vec();
+                let mle_evals = (0..matrix_width)
+                    .map(|i| matrix.iter().map(|r| r[i]).collect_vec())
                     .collect_vec();
 
                 let ((comm, prover_data), duration) = sample(
@@ -751,8 +741,10 @@ fn bench_fri(system: &System, k: usize) {
                             })
                             .collect_vec();
                         let matrix = RowMajorMatrix::<Val>::new(
-                            uni_evals.iter().flat_map(|p| p.poly.clone()).collect_vec(),
-                            commit_data.matrix_widths[0][commit_pointer],
+                            (0..uni_evals[0].poly.len())
+                                .flat_map(|i| uni_evals.iter().map(|e| e.poly[i]).collect_vec())
+                                .collect_vec(),
+                            uni_evals.len(),
                         );
                         <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::commit(
                             &pcs,
@@ -763,12 +755,10 @@ fn bench_fri(system: &System, k: usize) {
                 );
 
                 poly_map.insert(matrix_str.clone(), (comm, prover_data));
-                matrix_str
-                    .chunks_exact(commit_data.matrix_widths[0][commit_pointer])
-                    .for_each(|chunk| {
-                        let poly_str = chunk.iter().map(|s| format!("{:?}", s)).collect_vec();
-                        matrix_map.insert(poly_str, matrix_str.clone());
-                    });
+                mle_evals.iter().for_each(|chunk| {
+                    let poly_str = chunk.iter().map(|s| format!("{:?}", s)).collect_vec();
+                    matrix_map.insert(poly_str, matrix_str.clone());
+                });
 
                 records.push(Record {
                     method: ops,
@@ -781,8 +771,8 @@ fn bench_fri(system: &System, k: usize) {
                 commit_pointer += 1;
             }
             PcsOps::Open => {
-                let mut data_points: HashMap<_, HashSet<Vec<FakeExtension>>> = HashMap::new();
-                let poly_vars = log2_strict_usize(commit_data.poly_points[open_pointer].0.len());
+                let mut data_points: HashMap<_, HashSet<Vec<Challenge>>> = HashMap::new();
+                let poly_vars = log2_strict_usize(commit_data.poly_points[open_pointer].1.len());
 
                 commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
@@ -793,12 +783,16 @@ fn bench_fri(system: &System, k: usize) {
                             .into_iter()
                             .map(|f| format!("{:?}", f))
                             .collect_vec();
-                        let matrix_str = matrix_map.get(poly_str).unwrap();
+                        let poly_str = poly_str
+                            .iter()
+                            .map(|s| format!("{:?}", Val::from_str(s)))
+                            .collect_vec();
+                        let matrix_str = matrix_map.get(&poly_str).unwrap();
 
                         let point = point
                             .clone()
                             .into_iter()
-                            .map(|f| FakeExtension::from_str(&f))
+                            .map(|f| Challenge::from_str(&f))
                             .collect_vec();
 
                         data_points
@@ -807,14 +801,6 @@ fn bench_fri(system: &System, k: usize) {
                             .insert(point);
                     });
 
-                let rounds = data_points
-                    .clone()
-                    .into_iter()
-                    .map(|(k, v)| (&poly_map.get(k).unwrap().1, v.into_iter().collect_vec()))
-                    .collect_vec();
-
-                assert_eq!(rounds.len(), 1);
-
                 let polys = commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
                     .map(|(poly, _, _)| from_str::<MultilinearPolynomial<Fr>>(poly).unwrap())
@@ -822,35 +808,49 @@ fn bench_fri(system: &System, k: usize) {
                         let poly = poly
                             .coefficients()
                             .into_iter()
-                            .map(|f| MyFr::from_str(&format!("{:?}", f)))
+                            .map(|f| Val::from_str(&format!("{:?}", f)))
                             .collect_vec();
                         MultilinearPolynomial::new(poly)
                     })
                     .collect_vec();
-                let comm = poly_map
-                    .get(data_points.clone().into_iter().last().unwrap().0)
-                    .unwrap()
-                    .0;
                 let evals = commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
-                    .map(|(_, _, eval)| MyFr::from_str(eval))
+                    .enumerate()
+                    .map(|(i, (_, _, eval))| Evaluation::new(i, i, Val::from_str(eval)))
                     .collect_vec();
                 let points = commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
-                    .map(|(_, point, _)| {
-                        point.into_iter().map(|f| MyFr::from_str(&f)).collect_vec()
+                    .map(|(_, point, _)| point.into_iter().map(|f| Val::from_str(&f)).collect_vec())
+                    .collect_vec();
+                let comm_point_evals = polys
+                    .clone()
+                    .iter()
+                    .zip(points.iter())
+                    .zip(evals.iter())
+                    .map(|((p, point), eval)| {
+                        (
+                            p.evals()
+                                .into_iter()
+                                .map(|f| format!("{:?}", f))
+                                .collect_vec(),
+                            point,
+                            eval,
+                        )
+                    })
+                    .fold(HashSet::new(), |mut acc, (poly, point, eval)| {
+                        acc.insert((matrix_map.get(&poly).unwrap(), point, eval.value()));
+                        acc
+                    })
+                    .into_iter()
+                    .map(|(matrix_str, point, eval)| {
+                        (
+                            poly_map.get(&matrix_str.clone()).unwrap().0,
+                            point.clone(),
+                            eval.clone(),
+                        )
                     })
                     .collect_vec();
-                let num_vars = data_points
-                    .clone()
-                    .into_iter()
-                    .last()
-                    .unwrap()
-                    .1
-                    .iter()
-                    .next()
-                    .unwrap()
-                    .len();
+                let mut num_vars = 0;
 
                 let (proof, duration) = sample(
                     k,
@@ -861,29 +861,29 @@ fn bench_fri(system: &System, k: usize) {
                         )
                     },
                     |(mut transcript, mut challenger)| {
-                        // let ell = evals.len().next_power_of_two().ilog2() as usize;
-                        // let t = transcript.squeeze_challenges(ell);
+                        num_vars = polys.first().map(|p| p.num_vars()).unwrap_or_default();
                         let t = (0..polys.len().next_power_of_two().ilog2() as usize)
-                            .map(|_| challenger.sample_algebra_element::<MyFr>())
+                            .map(|_| challenger.sample_algebra_element::<Val>())
                             .collect_vec();
 
                         let eq_xt = MultilinearPolynomial::eq_xy(&t);
-                        let merged_polys = izip!((0..), eq_xt.evals().iter()).fold(
+                        let merged_polys = evals.iter().zip(eq_xt.evals().iter()).fold(
                             vec![
-                                (MyFr::ONE, Cow::<MultilinearPolynomial<_>>::default());
+                                (Val::ONE, Cow::<MultilinearPolynomial<_>>::default());
                                 points.len()
                             ],
-                            |mut merged_polys, (i, eq_xt_i)| {
-                                if merged_polys[i].1.is_zero() {
-                                    merged_polys[i] = (*eq_xt_i, Cow::Borrowed(&polys[i]));
+                            |mut merged_polys, (eval, eq_xt_i)| {
+                                if merged_polys[eval.point()].1.is_zero() {
+                                    merged_polys[eval.point()] =
+                                        (*eq_xt_i, Cow::Borrowed(&polys[eval.poly()]));
                                 } else {
-                                    let coeff = merged_polys[i].0;
-                                    if coeff != MyFr::ONE {
-                                        merged_polys[i].0 = MyFr::ONE;
-                                        *merged_polys[i].1.to_mut() *= &coeff;
+                                    let coeff = merged_polys[eval.point()].0;
+                                    if coeff != Val::ONE {
+                                        merged_polys[eval.point()].0 = Val::ONE;
+                                        *merged_polys[eval.point()].1.to_mut() *= &coeff;
                                     }
-                                    *merged_polys[i].1.to_mut() += (eq_xt_i, &polys[i]);
-                                    (eq_xt_i, polys[i].clone());
+                                    *merged_polys[eval.point()].1.to_mut() +=
+                                        (eq_xt_i, &polys[eval.poly()]);
                                 }
                                 merged_polys
                             },
@@ -903,7 +903,7 @@ fn bench_fri(system: &System, k: usize) {
                             .enumerate()
                             .map(|(idx, (scalar, poly))| {
                                 let poly = unique_merged_poly_indices[&addr_of!(*poly.deref())];
-                                Expression::<MyFr>::eq_xy(idx)
+                                Expression::<Val>::eq_xy(idx)
                                     * Expression::Polynomial(Query::new(poly, Rotation::cur()))
                                     * scalar
                             })
@@ -915,10 +915,10 @@ fn bench_fri(system: &System, k: usize) {
                             &points,
                         );
 
-                        let tilde_gs_sum = inner_product(evals.iter(), &eq_xt[..evals.len()]);
-                        let now = Instant::now();
+                        let tilde_gs_sum =
+                            inner_product(evals.iter().map(|e| e.value()), &eq_xt[..evals.len()]);
 
-                        let (challenges, _) = ClassicSumCheck::<CoefficientsProver<MyFr>>::prove(
+                        let (challenges, _) = ClassicSumCheck::<CoefficientsProver<Val>>::prove(
                             &(),
                             num_vars,
                             virtual_poly,
@@ -941,38 +941,30 @@ fn bench_fri(system: &System, k: usize) {
                             })
                             .sum::<MultilinearPolynomial<_>>();
 
-                        let eval = if cfg!(feature = "sanity-check") {
-                            let scalars = izip!((0..), evals.clone(), eq_xt.evals().iter())
-                                .map(|(i, eval, eq_xt_i)| eq_xy_evals[i] * eq_xt_i)
-                                .collect_vec();
-                            let now = Instant::now();
-
-                            // let comm = Self::Commitment::sum_with_scalar(&scalars, bases);
-                            //	    println!("sum with scalar {:?}", now.elapsed().as_millis());
-                            g_prime.evaluate(&challenges)
-                        } else {
-                            MyFr::ZERO
-                        };
-
                         let point = challenges;
 
                         //write batch queries
 
                         let poly = g_prime;
 
-                        let num_vars = poly.num_vars();
+                        num_vars = poly.num_vars();
 
-                        let (quotients, remainder) =
+                        let (quotients, _) =
                             quotients(&poly, &point[..], |_, q| UnivariatePolynomial::new(q));
 
-                        let mut tmp_vec =
-                            Vec::with_capacity(quotients.len() * quotients[0].coeffs().len());
-                        for j in 0..quotients[0].coeffs().len() {
+                        let mut tmp_vec = Vec::with_capacity(quotients.len() * (1 << poly_vars));
+                        for j in 0..(1 << poly_vars) {
                             for i in 0..quotients.len() {
-                                tmp_vec.push(quotients[i].coeffs()[j]);
+                                if j < quotients[i].coeffs().len() {
+                                    tmp_vec.push(quotients[i].coeffs()[j]);
+                                } else {
+                                    tmp_vec.push(Val::ZERO);
+                                }
                             }
                         }
                         let matrix = RowMajorMatrix::new(tmp_vec, quotients.len());
+                        let dft = Dft::default();
+                        let matrix = dft.dft_batch(matrix.clone()).to_row_major_matrix();
                         let domain = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::natural_domain_for_degree(
                             &pcs,
                             1 << poly_vars,
@@ -984,22 +976,19 @@ fn bench_fri(system: &System, k: usize) {
                                 vec![(domain, matrix)],
                             );
 
-                        let x = transcript.squeeze_challenge();
+                        let x: Val = transcript.squeeze_challenge(); // Val == Challenge
 
                         let q_proof = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::open(
                             &pcs,
-                            vec![(&q_prover_data, vec![vec![FakeExtension::from(x)]])],
+                            vec![(&q_prover_data, vec![vec![Challenge::from(x)]])],
                             &mut challenger,
                         );
 
-                        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point);
-
-                        let mut f = UnivariatePolynomial::new(poly.evals().to_vec());
-
                         let poly = poly.evals().to_vec();
+                        poly_len = poly.len();
                         let domain = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::natural_domain_for_degree(
                             &pcs,
-                            1 << poly_vars,
+                            poly.len(),
                         );
                         let matrix = RowMajorMatrix::new(poly, 1);
 
@@ -1008,15 +997,27 @@ fn bench_fri(system: &System, k: usize) {
                                 &pcs,
                                 vec![(domain, matrix)],
                             );
-                        let f_eval_at_x = f.evaluate(&x);
 
                         let f_proof = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::open(
                             &pcs,
-                            vec![(&f_prover_data, vec![vec![FakeExtension::from(f_eval_at_x)]])],
+                            vec![(&f_prover_data, vec![vec![Challenge::from(x)]])],
                             &mut challenger,
                         );
 
-                        (q_comm, q_proof, f_comm, f_proof)
+                        let rounds = data_points
+                            .clone()
+                            .into_iter()
+                            .map(|(k, _)| {
+                                (&poly_map.get(k).unwrap().1, vec![vec![Challenge::from(x)]])
+                            })
+                            .collect_vec();
+                        let p_proof = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::open(
+                            &pcs,
+                            rounds,
+                            &mut challenger,
+                        );
+
+                        (q_comm, q_proof, f_comm, f_proof, p_proof)
                     },
                     |proof| proof,
                 );
@@ -1026,10 +1027,12 @@ fn bench_fri(system: &System, k: usize) {
                 records.push(Record {
                     method: ops,
                     poly_num: size,
-                    poly_vars,
+                    poly_vars: num_vars,
                     time: duration,
                     size: Some(proof_bytes.len()),
                 });
+
+                verifier_data.push((proof, points, evals, comm_point_evals));
 
                 open_pointer += size;
             }
@@ -1037,6 +1040,131 @@ fn bench_fri(system: &System, k: usize) {
                 unreachable!("Verify should not be in the instructions");
             }
         }
+    }
+
+    // verify
+    for (proof, points, evals, comm_point_evals) in verifier_data {
+        let mut num_vars = 0;
+        let rounds = comm_point_evals
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(i, (comm, points, _))| {
+                let domain =
+                    <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::natural_domain_for_degree(
+                        &pcs,
+                        1 << num_vars,
+                    );
+                (
+                    comm,
+                    vec![(
+                        domain,
+                        points
+                            .into_iter()
+                            .map(|f| Challenge::from(f))
+                            .zip(proof.4 .0[0][i].clone())
+                            .collect_vec(),
+                    )],
+                )
+            })
+            .collect_vec();
+
+        let (_, duration) = sample(
+            k,
+            || {
+                (
+                    Blake2sTranscript::<std::io::Cursor<Vec<u8>>>::default(),
+                    Challenger::from_hasher(vec![], byte_hash),
+                )
+            },
+            |(mut transcript, mut challenger)| {
+                num_vars = points.first().map(|point| point.len()).unwrap_or_default();
+
+                let ell = evals.len().next_power_of_two().ilog2() as usize;
+                let t = transcript.squeeze_challenges(ell);
+
+                let eq_xt = MultilinearPolynomial::eq_xy(&t);
+                let tilde_gs_sum =
+                    inner_product(evals.iter().map(|e| e.value()), &eq_xt[..evals.len()]);
+
+                let (g_prime_eval, verify_point) =
+                    ClassicSumCheck::<CoefficientsProver<Val>>::verify(
+                        &(),
+                        num_vars,
+                        2,
+                        tilde_gs_sum,
+                        &mut transcript,
+                    )
+                    .unwrap();
+
+                let point = verify_point;
+                let eval = g_prime_eval;
+
+                let q_comm = proof.0;
+
+                let x: Val = transcript.squeeze_challenge();
+                // let x = Challenge::from(x);
+
+                let domain =
+                    <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::natural_domain_for_degree(
+                        &pcs,
+                        1 << num_vars,
+                    );
+                let q_evals = proof.1 .0[0][0][0].clone();
+
+                <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::verify(
+                    &pcs,
+                    vec![(
+                        q_comm,
+                        vec![(domain, vec![(Challenge::from(x), q_evals.clone())])],
+                    )],
+                    &proof.1 .1,
+                    &mut challenger,
+                )
+                .unwrap();
+
+                let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
+                let mut f_eval = eval_scalar * eval;
+                let q_evals = q_evals.into_iter().map(|f| f.value).collect_vec();
+                izip!(&q_evals, &q_scalars).for_each(|(q, scalar)| f_eval += *scalar * *q);
+
+                let f_comm = proof.2;
+                let f_evals = proof.3 .0[0][0][0].clone();
+
+                let domain =
+                    <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::natural_domain_for_degree(
+                        &pcs, poly_len,
+                    );
+
+                <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::verify(
+                    &pcs,
+                    vec![(
+                        f_comm,
+                        vec![(domain, vec![(Challenge::from(x), f_evals.clone())])],
+                    )],
+                    &proof.3 .1,
+                    &mut challenger,
+                )
+                .unwrap();
+
+                <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::verify(
+                    &pcs,
+                    rounds.clone(),
+                    &proof.4 .1,
+                    &mut challenger,
+                )
+                .unwrap();
+            },
+            |_| (),
+        );
+
+        records.push(Record {
+            method: PcsOps::Verify,
+            poly_num: points.len(),
+            poly_vars: num_vars,
+            time: duration,
+            size: None,
+        });
     }
 
     let mut file = File::create(system.detail_output_path(k)).unwrap();
