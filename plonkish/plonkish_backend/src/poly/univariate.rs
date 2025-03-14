@@ -7,6 +7,9 @@ use crate::{
         Deserialize, Itertools, Serialize,
     },
 };
+use ff::PrimeField;
+use p3_util::log2_strict_usize;
+use plonky2_util::reverse_bits;
 use rand::RngCore;
 use std::{
     borrow::Borrow,
@@ -63,15 +66,23 @@ impl<F> UnivariatePolynomial<F, CoefficientBasis> {
     }
 }
 
-impl<F: Field> Polynomial<F> for UnivariatePolynomial<F, CoefficientBasis> {
+impl<F: PrimeField> Polynomial<F> for UnivariatePolynomial<F, CoefficientBasis> {
     type Point = F;
 
-    fn from_evals(_: Vec<F>) -> Self {
-        unimplemented!()
+    fn from_evals(evals: Vec<F>) -> Self {
+        let mut values = evals;
+        reverse_bits_in_place(&mut values);
+        ntt_from_rbo_inplace(&mut values, F::ROOT_OF_UNITY_INV);
+        let inv_len = F::from_u128(values.len() as u128).invert().unwrap();
+        values.iter_mut().for_each(|v| *v *= inv_len);
+        Self::new(values)
     }
 
     fn into_evals(self) -> Vec<F> {
-        unimplemented!()
+        let mut values = self.values.clone();
+        reverse_bits_in_place(&mut values);
+        ntt_from_rbo_inplace(&mut values, F::ROOT_OF_UNITY);
+        values
     }
 
     fn evals(&self) -> &[F] {
@@ -85,12 +96,12 @@ impl<F: Field> Polynomial<F> for UnivariatePolynomial<F, CoefficientBasis> {
 
 impl<F: Field> UnivariatePolynomial<F, CoefficientBasis> {
     pub fn new(coeffs: Vec<F>) -> Self {
-	let _og_length = coeffs.len();
+        let _og_length = coeffs.len();
         let poly = Self {
             values: coeffs,
             _marker: PhantomData,
         };
-//        poly.truncate_leading_zeros();
+        //        poly.truncate_leading_zeros();
         poly
     }
 
@@ -385,3 +396,38 @@ impl<'a, F: Field, P: Borrow<UnivariatePolynomial<F, CoefficientBasis>>> Sum<(&'
 }
 
 impl_index!(@ UnivariatePolynomial<F, CoefficientBasis>, values);
+
+fn ntt_from_rbo_inplace<F: Field>(poly: &mut Vec<F>, omega: F) {
+    let n = poly.len();
+    let log_n = log2_strict_usize(n);
+    assert_eq!(n, 1 << log_n);
+
+    let mut sep = 1;
+    for _ in 0..log_n {
+        let mut w = F::ONE;
+        for j in 0..sep {
+            let mut i = 0;
+            while i < n {
+                let (l, r) = (i + j, i + j + sep);
+                let tmp = poly[r] * w;
+                poly[r] = poly[l] - tmp;
+                poly[l] = poly[l] + tmp;
+                i += 2 * sep;
+            }
+            w *= omega.pow(&[n as u64 / (2 * sep) as u64]);
+        }
+        sep *= 2;
+    }
+}
+
+fn reverse_bits_in_place<F: Field>(poly: &mut Vec<F>) {
+    let n = poly.len();
+    assert_eq!(n, 1 << log2_strict_usize(n));
+    for k in 0..n {
+        let k_rev = reverse_bits(k, log2_strict_usize(n));
+        if k < k_rev {
+            let (tmp1, tmp2) = poly.split_at_mut(k + 1);
+            std::mem::swap(&mut tmp1[k], &mut tmp2[k_rev - k - 1]);
+        }
+    }
+}

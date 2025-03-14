@@ -1,4 +1,5 @@
 #![allow(warnings, unused)]
+pub mod batched_fri;
 mod fri;
 mod kzg;
 
