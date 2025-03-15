@@ -31,7 +31,7 @@ use plonkish_backend::pcs::mock_pcs::PcsOps;
 use plonkish_backend::pcs::multilinear::deepfold::Deepfold;
 use plonkish_backend::pcs::multilinear::{
     interpolate_over_boolean_hypercube_with_copy, Basefold, Gemini, MultilinearBrakedown,
-    MultilinearHyrax, MultilinearKzg, Type2Polynomial,
+    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFriV2,
 };
 use plonkish_backend::pcs::univariate::UnivariateKzg;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
@@ -55,8 +55,9 @@ use plonkish_backend::{
 
 use rand::thread_rng;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::from_str;
+use sha2::digest::Output;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -259,7 +260,10 @@ fn bench_pcs<
                         let (comm, duration) =
                             sample(k, || (), |_| P::commit(&pp, &poly).unwrap(), |c| c);
                         poly_map.insert(
-                            commit_data.matrices[0][commit_pointer].clone(),
+                            poly.coefficients()
+                                .into_iter()
+                                .map(|f| format!("{:?}", f))
+                                .collect_vec(),
                             comm.clone(),
                         );
 
@@ -327,7 +331,9 @@ fn bench_pcs<
             PcsOps::Open => match size {
                 1 => {
                     let (poly, point, eval) = &commit_data.poly_points[open_pointer];
-                    let poly = from_str::<MultilinearPolynomial<F>>(poly).unwrap();
+                    let poly = MultilinearPolynomial::new(
+                        poly.iter().map(|s| F::from_str(&s)).collect_vec(),
+                    );
                     let comm = poly_map
                         .get(
                             &poly
@@ -355,14 +361,6 @@ fn bench_pcs<
                         },
                         |transcript| transcript.into_proof(),
                     );
-
-                    // poly_map.insert(
-                    //     poly.evals()
-                    //         .into_iter()
-                    //         .map(|f| format!("{:?}", f))
-                    //         .collect_vec(),
-                    //     comm.clone(),
-                    // );
 
                     verify_data.push((
                         proof.clone(),
@@ -398,25 +396,15 @@ fn bench_pcs<
                                 .map(|f| F::from_str(&f))
                                 .collect_vec();
                             let eval = F::from_str(eval);
-                            let poly_str = &from_str::<MultilinearPolynomial<F>>(poly)
-                                .unwrap()
-                                .evals()
-                                .into_iter()
-                                .map(|f| format!("{:?}", f))
+                            let poly_str = poly
+                                .iter()
+                                .map(|f| format!("{:?}", F::from_str(f)))
                                 .collect_vec();
-                            let comm = poly_map.get(poly_str).unwrap().clone();
+                            let comm = poly_map.get(&poly_str).unwrap().clone();
 
-                            // poly_map.insert(
-                            //     from_str::<MultilinearPolynomial<F>>(poly)
-                            //         .unwrap()
-                            //         .evals()
-                            //         .into_iter()
-                            //         .map(|f| format!("{:?}", f))
-                            //         .collect_vec(),
-                            //     comm.clone(),
-                            // );
-
-                            polys.push(from_str(poly).unwrap());
+                            polys.push(MultilinearPolynomial::new(
+                                poly.iter().map(|s| F::from_str(&s)).collect_vec(),
+                            ));
                             points.push(point);
                             evals.push(eval);
                             comms.push(comm);
@@ -777,17 +765,7 @@ fn bench_fri(system: &System, k: usize) {
                 commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
                     .for_each(|(poly, point, _)| {
-                        let poly_str = &from_str::<MultilinearPolynomial<Fr>>(poly)
-                            .unwrap()
-                            .coefficients()
-                            .into_iter()
-                            .map(|f| format!("{:?}", f))
-                            .collect_vec();
-                        let poly_str = poly_str
-                            .iter()
-                            .map(|s| format!("{:?}", Val::from_str(s)))
-                            .collect_vec();
-                        let matrix_str = matrix_map.get(&poly_str).unwrap();
+                        let matrix_str = matrix_map.get(poly).unwrap();
 
                         let point = point
                             .clone()
@@ -803,13 +781,8 @@ fn bench_fri(system: &System, k: usize) {
 
                 let polys = commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
-                    .map(|(poly, _, _)| from_str::<MultilinearPolynomial<Fr>>(poly).unwrap())
-                    .map(|poly| {
-                        let poly = poly
-                            .coefficients()
-                            .into_iter()
-                            .map(|f| Val::from_str(&format!("{:?}", f)))
-                            .collect_vec();
+                    .map(|(poly, _, _)| {
+                        let poly = poly.iter().map(|s| Val::from_str(&s)).collect_vec();
                         MultilinearPolynomial::new(poly)
                     })
                     .collect_vec();
@@ -1262,7 +1235,8 @@ enum System {
     Brakedown,
     BrakedownBlake2s,
     ZeromorphFri,
-    Fri,
+    ZeromorphFriV2,
+    P3Fri,
     Circle,
     Gemini,
     Hyrax,
@@ -1279,7 +1253,8 @@ impl System {
             System::Brakedown,
             System::BrakedownBlake2s,
             System::ZeromorphFri,
-            System::Fri,
+            System::ZeromorphFriV2,
+            System::P3Fri,
             System::Circle,
             System::Gemini,
             System::Hyrax,
@@ -1406,7 +1381,7 @@ impl System {
             System::BrakedownBlake2s => {
                 bench_pcs::<GoldilocksMont, BrakedownBlake2s, Blake2sTranscript<_>>(self, k)
             }
-            System::Fri => bench_fri(self, k),
+            System::P3Fri => bench_fri(self, k),
             System::Circle => {
                 unimplemented!("Circle is not implemented for mock proof system")
             }
@@ -1418,6 +1393,9 @@ impl System {
             }
             System::Deepfold => {
                 bench_pcs::<Mersenne61Mont, Deepfold, Blake2sTranscript<_>>(self, k)
+            }
+            System::ZeromorphFriV2 => {
+                bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
         }
     }
@@ -1436,7 +1414,8 @@ impl Display for System {
             System::Circle => write!(f, "circle"),
             System::Gemini => write!(f, "gemini"),
             System::Hyrax => write!(f, "hyrax"),
-            System::Fri => write!(f, "fri"),
+            System::P3Fri => write!(f, "fri"),
+            System::ZeromorphFriV2 => write!(f, "zeromorph_fri_v2"),
             System::Deepfold => write!(f, "deepfold"),
         }
     }
@@ -1459,7 +1438,8 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "circle" => systems.push(System::Circle),
                     "gemini" => systems.push(System::Gemini),
                     "hyrax" => systems.push(System::Hyrax),
-                    "fri" => systems.push(System::Fri),
+                    "fri" => systems.push(System::P3Fri),
+                    "zeromorph_fri_v2" => systems.push(System::ZeromorphFriV2),
                     _ => panic!(
                         "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne}}"
                     ),

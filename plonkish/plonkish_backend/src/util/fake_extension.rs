@@ -35,8 +35,27 @@ impl From<MyFr> for FakeExtension {
 unsafe impl Send for FakeExtension {}
 unsafe impl Sync for FakeExtension {}
 
-#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct MyFr(pub Bn254Fr);
+
+impl Serialize for MyFr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for MyFr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Bn254Fr::deserialize(deserializer)?;
+        Ok(MyFr(value))
+    }
+}
 
 impl ConstantTimeEq for MyFr {
     fn ct_eq(&self, other: &Self) -> subtle::Choice {

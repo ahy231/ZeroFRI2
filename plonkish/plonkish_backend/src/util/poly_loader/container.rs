@@ -24,7 +24,7 @@ pub struct MatrixContainer {
     pub matrices_num: Vec<usize>,        // rounds[1, 2, (matrices_num)]
     pub matrix_widths: Vec<Vec<usize>>,  // rounds[matrices[1, 2, (matrix_widths)]]
     pub matrices: Vec<Vec<Vec<String>>>, // rounds[matrices[elements[1, 2, 3, 4, 5, 6]]], according to p3 matrix format
-    pub poly_points: Vec<(String, Vec<String>, String)>, // vec[(poly, point, eval)]
+    pub poly_points: Vec<(Vec<String>, Vec<String>, String)>, // vec[(poly, point, eval)]
 }
 
 impl MatrixContainer {

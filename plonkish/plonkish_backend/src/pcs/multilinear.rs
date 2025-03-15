@@ -9,13 +9,14 @@ mod basefold;
 mod brakedown;
 pub mod combined_virgo;
 pub mod deepfold;
-pub mod virgo;
 mod gemini;
 mod hyrax;
 mod ipa;
 mod kzg;
+pub mod virgo;
 mod zeromorph;
 mod zeromorph_fri;
+pub mod zeromorph_fri_v2;
 pub use basefold::{
     evaluate_over_foldable_domain, interpolate_over_boolean_hypercube_with_copy, Basefold,
     BasefoldCommitment, BasefoldExtParams, BasefoldParams, BasefoldProverParams,
@@ -33,6 +34,10 @@ pub use kzg::{
 };
 pub use zeromorph::{Zeromorph, ZeromorphKzgProverParam, ZeromorphKzgVerifierParam};
 pub use zeromorph_fri::{ZeromorphFri, ZeromorphFriProverParam, ZeromorphFriVerifierParam};
+pub use zeromorph_fri_v2::{
+    ZeromorphFri as ZeromorphFriV2, ZeromorphFriProverParam as ZeromorphFriV2ProverParam,
+    ZeromorphFriVerifierParam as ZeromorphFriV2VerifierParam,
+};
 
 fn validate_input<'a, F: Field>(
     function: &str,

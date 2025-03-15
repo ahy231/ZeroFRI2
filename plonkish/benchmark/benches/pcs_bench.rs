@@ -571,6 +571,10 @@ fn parse_args() -> (Vec<System>, Range<usize>, usize, usize) {
                         }
                         "basefold256" => systems.push(System::Basefold256),
                         "multilinearkzg" => systems.push(System::MultilinearKzg),
+                        "zeromorph_fri" => systems.push(System::ZeromorphFri),
+                        "brakedown" => systems.push(System::Brakedown),
+                        "brakedown_blake" => systems.push(System::BrakedownBlake2s),
+                        "basefold_blake" => systems.push(System::BasefoldBlake2s),
                         _ => panic!(
                             "system should be one of {{all,hyperplonk,halo2,espresso_hyperplonk}}"
                         ),

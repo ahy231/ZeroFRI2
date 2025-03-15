@@ -209,7 +209,10 @@ where
         if poly.evals().len() > 0 {
             unsafe {
                 CONTAINER.as_mut().unwrap().poly_points.push((
-                    serde_json::to_string(&poly).unwrap(),
+                    poly.coefficients()
+                        .into_iter()
+                        .map(|f| format!("{:?}", f))
+                        .collect_vec(),
                     point
                         .clone()
                         .into_iter()
@@ -238,7 +241,12 @@ where
             unsafe {
                 for eval in evals {
                     CONTAINER.as_mut().unwrap().poly_points.push((
-                        serde_json::to_string(&polys[eval.poly]).unwrap(),
+                        polys[eval.poly]
+                            .clone()
+                            .into_evals()
+                            .into_iter()
+                            .map(|f| format!("{:?}", f))
+                            .collect_vec(),
                         points[eval.point]
                             .clone()
                             .into_iter()
