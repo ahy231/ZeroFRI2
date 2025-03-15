@@ -1,6 +1,7 @@
 use halo2_curves::ff::{PrimeField};
 use serde::{Serialize, Deserialize};
-use ff::{PrimeFieldBits,BatchInvert};
+use ff::{PrimeFieldBits,BatchInvert,Field as FfField};
+use halo2_proofs::arithmetic::Field as Halo2Field;
 use std::ops::{Shr, BitAnd};
 use rand::RngCore;
 use std::fmt::{Display,Formatter,Debug};
@@ -127,3 +128,17 @@ impl MyField for Mersenne61Mont {
     }
 }
 
+
+// Instead of implementing Halo2Field directly which conflicts with ff::Field,
+// we'll implement the specific methods needed by the application
+impl Mersenne61Mont {
+    pub fn halo2_random<R: rand::RngCore>(rng: &mut R) -> Self {
+        Self::random_element()
+    }
+    
+    pub fn halo2_sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self) {
+        // For now, just return a default implementation
+        // Return (Choice::from(0), Self::ZERO) indicating no square root found
+        (Choice::from(0), Self::ZERO)
+    }
+}
