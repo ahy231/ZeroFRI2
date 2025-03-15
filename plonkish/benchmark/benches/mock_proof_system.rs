@@ -10,6 +10,7 @@ use num_bigint::BigInt;
 use p3_bn254_fr::{Bn254Fr, FFBn254Fr};
 use p3_challenger::FieldChallenger;
 use p3_matrix::Matrix;
+use plonkish_backend::pcs::multilinear::virgo::VirgoPCS;
 use plonkish_backend::piop::sum_check::classic::{ClassicSumCheck, CoefficientsProver};
 use plonkish_backend::piop::sum_check::{eq_xy_eval, SumCheck, VirtualPolynomial};
 use plonkish_backend::poly::univariate::UnivariatePolynomial;
@@ -108,11 +109,7 @@ pub trait FieldFromStr: DeserializeOwned + Clone + AddAssign + Copy + Debug {
 
 impl FieldFromStr for Fr {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 32];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        Fr::from_bytes(&bytes).unwrap()
+        serde_json::from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
@@ -122,11 +119,7 @@ impl FieldFromStr for Fr {
 
 impl FieldFromStr for Mersenne127 {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 16];
-        let bytes_vec = bigint.to_bytes_le().1;
-        bytes[..bytes_vec.len()].copy_from_slice(&bytes_vec);
-        Mersenne127::from_u128(u128::from_le_bytes(bytes))
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
@@ -136,11 +129,7 @@ impl FieldFromStr for Mersenne127 {
 
 impl FieldFromStr for GoldilocksMont {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 16];
-        let bytes_vec = bigint.to_bytes_le().1;
-        bytes[..bytes_vec.len()].copy_from_slice(&bytes_vec);
-        GoldilocksMont::from_u128(u128::from_le_bytes(bytes))
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
@@ -150,11 +139,7 @@ impl FieldFromStr for GoldilocksMont {
 
 impl FieldFromStr for Fp {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 32];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        Fp::from_bytes(&bytes).unwrap()
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
@@ -1241,6 +1226,7 @@ enum System {
     Gemini,
     Hyrax,
     Deepfold,
+    Virgo,
 }
 
 impl System {
@@ -1259,6 +1245,7 @@ impl System {
             System::Gemini,
             System::Hyrax,
             System::Deepfold,
+            System::Virgo,
         ]
     }
 
@@ -1397,6 +1384,9 @@ impl System {
             System::ZeromorphFriV2 => {
                 bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
+            System::Virgo => {
+                unimplemented!("Virgo is not implemented for mock proof system")
+            }
         }
     }
 }
@@ -1417,6 +1407,7 @@ impl Display for System {
             System::P3Fri => write!(f, "fri"),
             System::ZeromorphFriV2 => write!(f, "zeromorph_fri_v2"),
             System::Deepfold => write!(f, "deepfold"),
+            System::Virgo => write!(f, "virgo"),
         }
     }
 }
@@ -1440,8 +1431,10 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "hyrax" => systems.push(System::Hyrax),
                     "fri" => systems.push(System::P3Fri),
                     "zeromorph_fri_v2" => systems.push(System::ZeromorphFriV2),
+                    "virgo" => systems.push(System::Virgo),
+                    "deepfold" => systems.push(System::Deepfold),
                     _ => panic!(
-                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne}}"
+                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne,basefoldblake2s,brakedown,brakedownblake2s,circle,gemini,hyrax,fri,zeromorph_fri_v2,virgo,deepfold}}"
                     ),
                 },
                 "--k" => {

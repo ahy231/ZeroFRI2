@@ -151,7 +151,7 @@ where
                     .clone()
                     .into_evals()
                     .into_iter()
-                    .map(|f| format!("{:?}", f))
+                    .map(|f| serde_json::to_string(&f).unwrap())
                     .collect_vec()]);
                 PCS_RECORDER.as_mut().unwrap().push((PcsOps::Commit, 1));
             }
@@ -178,7 +178,7 @@ where
                             p.clone()
                                 .into_evals()
                                 .into_iter()
-                                .map(|f| format!("{:?}", f))
+                                .map(|f| serde_json::to_string(&f).unwrap())
                                 .collect_vec()
                         })
                         .collect_vec(),
@@ -211,14 +211,14 @@ where
                 CONTAINER.as_mut().unwrap().poly_points.push((
                     poly.coefficients()
                         .into_iter()
-                        .map(|f| format!("{:?}", f))
+                        .map(|f| serde_json::to_string(&f).unwrap())
                         .collect_vec(),
                     point
                         .clone()
                         .into_iter()
-                        .map(|f| format!("{:?}", f))
+                        .map(|f| serde_json::to_string(&f).unwrap())
                         .collect_vec(),
-                    format!("{:?}", eval),
+                    serde_json::to_string(&eval).unwrap(),
                 ));
                 PCS_RECORDER.as_mut().unwrap().push((PcsOps::Open, 1));
             }
@@ -245,14 +245,14 @@ where
                             .clone()
                             .into_evals()
                             .into_iter()
-                            .map(|f| format!("{:?}", f))
+                            .map(|f| serde_json::to_string(&f).unwrap())
                             .collect_vec(),
                         points[eval.point]
                             .clone()
                             .into_iter()
-                            .map(|f| format!("{:?}", f))
+                            .map(|f| serde_json::to_string(&f).unwrap())
                             .collect_vec(),
-                        format!("{:?}", eval.value),
+                        serde_json::to_string(&eval.value).unwrap(),
                     ));
                 }
                 PCS_RECORDER

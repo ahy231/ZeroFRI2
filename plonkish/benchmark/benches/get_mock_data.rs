@@ -20,13 +20,18 @@ use plonkish_backend::{
     pcs::mock_pcs::{MockPcs, CONTAINER, FIELD as MF, PCS_RECORDER},
     util::{
         end_timer,
-        hash::Blake2s256, // Additional hashing utilities.
+        fake_extension::MyFr,
+        goldilocksMont::GoldilocksMont,
+        hash::Blake2s256,
+        mersenne_61_mont::Mersenne61Mont,
+        new_fields::{Mersenne127, Mersenne61},
         poly_loader::{container::Field as CF, dumper::Dumper},
-        start_timer,                // Timer utilities for measuring performance.
-        test::std_rng,              // A standard RNG for testing.
+        start_timer,
+        test::std_rng,
         transcript::MockTranscript, // Transcript types for non-interactive proofs.
     },
 };
+use serde::Serialize;
 
 // Std library imports for I/O, timing, etc.
 use std::{
@@ -48,24 +53,76 @@ const OUTPUT_DIR: &str = "./bench_data/mock";
 /// 2) Create output directories.
 /// 3) For each k in the range, run each system's benchmark with the chosen circuit.
 fn main() {
-    unsafe {
-        MF = Some(CF::Bn254Fr);
-    }
-    let (systems, circuit, k_range) = parse_args(); // (1) parse CLI args
-    k_range.for_each(|k| systems.iter().for_each(|system| system.bench(k, circuit)));
+    let (systems, k_range) = parse_args(); // (1) parse CLI args
+
+    systems.iter().for_each(|system| match system {
+        System::Bn254Fr => {
+            unsafe {
+                MF = Some(CF::Bn254Fr);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<Fr, VanillaPlonk<Fr>>(k);
+            });
+        }
+        System::Mersenne127 => {
+            unsafe {
+                MF = Some(CF::Mersenne127);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<Mersenne127, VanillaPlonk<Mersenne127>>(k);
+            });
+        }
+        System::GoldilocksMont => {
+            unsafe {
+                MF = Some(CF::GoldilocksMont);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<GoldilocksMont, VanillaPlonk<GoldilocksMont>>(k);
+            });
+        }
+        System::MyFr => {
+            unsafe {
+                MF = Some(CF::MyFr);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<MyFr, VanillaPlonk<MyFr>>(k);
+            });
+        }
+        System::Mersenne61Mont => {
+            unsafe {
+                MF = Some(CF::Mersenne61Mont);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<Mersenne61Mont, VanillaPlonk<Mersenne61Mont>>(k);
+            });
+        }
+        System::Mersenne61 => {
+            unsafe {
+                MF = Some(CF::Mersenne61);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<Mersenne61, VanillaPlonk<Mersenne61>>(k);
+            });
+        }
+    });
 }
 
 /// Benchmarks HyperPlonk for a given circuit size k and circuit type C.
-fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
+fn bench_hyperplonk<
+    F: ff::PrimeField + Serialize + std::hash::Hash + for<'de> serde::Deserialize<'de>,
+    C: CircuitExt<F>,
+>(
+    k: usize,
+) {
     // 1) Type definitions for the FRI-based PCS.
-    type Mock = MockPcs<Fr, Blake2s256>;
+    type Mock<F> = MockPcs<F, Blake2s256>;
     // 2) Our HyperPlonk backend uses Gemini as the polynomial commitment scheme.
-    type HyperPlonk = backend::hyperplonk::HyperPlonk<Mock>;
+    type HyperPlonk<F> = backend::hyperplonk::HyperPlonk<Mock<F>>;
 
     // 3) Generate a random circuit of size k.
     let circuit = C::rand(k, std_rng());
     // 4) Convert the random circuit into a Halo2Circuit that HyperPlonk can understand.
-    let circuit = Halo2Circuit::new::<HyperPlonk>(k, circuit);
+    let circuit = Halo2Circuit::new::<HyperPlonk<F>>(k, circuit);
 
     // Additional data needed for setup/proof generation: circuit_info, instance arrays, etc.
     let circuit_info = circuit.circuit_info().unwrap();
@@ -83,10 +140,10 @@ fn bench_hyperplonk<C: CircuitExt<Fr>>(k: usize) {
     end_timer(timer);
 
     // 8) Proving phase, measured using the `sample` helper function.
-    let proof = sample(System::HyperPlonk, k, || {
+    let proof = sample(k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         // 9) A transcript where proof data is recorded; used for non-interactive proofs.
-        let mut transcript = MockTranscript::<Fr, Blake2s256>::default();
+        let mut transcript = MockTranscript::<F, Blake2s256>::default();
         // 10) Generate the proof with the prover parameters, circuit data, RNG, etc.
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         // Convert the transcript into a raw byte vector proof.
@@ -132,7 +189,7 @@ fn bench_halo2<C: CircuitExt<Fr>>(k: usize) {
         |c, d, e| verify_proof::<_, VerifierGWC<_>, _, _, _, false>(&param, pk.get_vk(), c, d, e);
 
     // 7) Proving step with repeated sampling for average time.
-    let proof = sample(System::HyperPlonk, k, || {
+    let proof = sample(k, || {
         let _timer = start_timer(|| format!("halo2_prove-{k}"));
         let transcript = Blake2bWrite::init(Vec::new());
         create_proof(circuits, &instances, std_rng(), transcript)
@@ -152,13 +209,24 @@ fn bench_halo2<C: CircuitExt<Fr>>(k: usize) {
 /// Enum listing which system(s) can be benchmarked. Right now, only HyperPlonk is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum System {
-    HyperPlonk,
+    Bn254Fr,
+    Mersenne127,
+    GoldilocksMont,
+    MyFr,
+    Mersenne61Mont,
+    Mersenne61,
 }
 
 impl System {
     /// Returns all possible systems (in this example, just HyperPlonk).
     fn all() -> Vec<System> {
-        vec![System::HyperPlonk]
+        vec![
+            System::Bn254Fr,
+            System::Mersenne127,
+            System::GoldilocksMont,
+            System::MyFr,
+            System::Mersenne61Mont,
+        ]
     }
 
     /// Path to the "proving time" or general output file for this system.
@@ -203,14 +271,23 @@ impl System {
     /// Whether this system can run a particular circuit variant. Currently everything is `true`.
     fn support(&self, circuit: Circuit) -> bool {
         match self {
-            System::HyperPlonk => match circuit {
+            System::Bn254Fr
+            | System::Mersenne127
+            | System::GoldilocksMont
+            | System::MyFr
+            | System::Mersenne61Mont
+            | System::Mersenne61 => match circuit {
                 Circuit::VanillaPlonk | Circuit::Aggregation | Circuit::Sha256 => true,
             },
         }
     }
 
     /// The main benchmark dispatcher. Decides which function to call based on system + circuit.
-    fn bench(&self, k: usize, circuit: Circuit) {
+    fn bench<F: ff::PrimeField + Serialize + std::hash::Hash + for<'de> serde::Deserialize<'de>>(
+        &self,
+        k: usize,
+        circuit: Circuit,
+    ) {
         if !self.support(circuit) {
             println!("skip benchmark on {circuit} with {self} because it's not compatible");
             return;
@@ -220,8 +297,13 @@ impl System {
 
         // Match on the system and circuit, calling the correct bench function.
         match self {
-            System::HyperPlonk => match circuit {
-                Circuit::VanillaPlonk => bench_hyperplonk::<VanillaPlonk<Fr>>(k),
+            System::Bn254Fr
+            | System::Mersenne127
+            | System::GoldilocksMont
+            | System::MyFr
+            | System::Mersenne61Mont
+            | System::Mersenne61 => match circuit {
+                Circuit::VanillaPlonk => bench_hyperplonk::<F, VanillaPlonk<F>>(k),
                 Circuit::Aggregation => {
                     // Example aggregator circuit commented out:
                     // bench_hyperplonk::<AggregationCircuit<Bn256>>(k)
@@ -238,7 +320,12 @@ impl System {
 impl Display for System {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            System::HyperPlonk => write!(f, "hyperplonk"),
+            System::Bn254Fr => write!(f, "bn254fr"),
+            System::Mersenne127 => write!(f, "mersenne127"),
+            System::GoldilocksMont => write!(f, "goldilocksmont"),
+            System::MyFr => write!(f, "myfr"),
+            System::Mersenne61Mont => write!(f, "mersenne61mont"),
+            System::Mersenne61 => write!(f, "mersenne61"),
         }
     }
 }
@@ -274,23 +361,22 @@ impl Display for Circuit {
 
 /// Parse CLI arguments like `--system hyperplonk --circuit vanilla_plonk --k 10..20`.
 /// Returns a tuple of (Vec<System>, Circuit, Range<usize>).
-fn parse_args() -> (Vec<System>, Circuit, Range<usize>) {
-    let (systems, circuit, k_range) = args().chain(Some("".to_string())).tuple_windows().fold(
-        (Vec::new(), Circuit::VanillaPlonk, 10..24),
-        |(mut systems, mut circuit, mut k_range), (key, value)| {
+fn parse_args() -> (Vec<System>, Range<usize>) {
+    let (systems, k_range) = args().chain(Some("".to_string())).tuple_windows().fold(
+        (Vec::new(), 10..24),
+        |(mut systems, mut k_range), (key, value)| {
             match key.as_str() {
                 "--system" => match value.as_str() {
                     "all" => systems = System::all(),
-                    "hyperplonk" => systems.push(System::HyperPlonk),
+                    "bn254fr" => systems.push(System::Bn254Fr),
+                    "mersenne127" => systems.push(System::Mersenne127),
+                    "goldilocksmont" => systems.push(System::GoldilocksMont),
+                    "myfr" => systems.push(System::MyFr),
+                    "mersenne61mont" => systems.push(System::Mersenne61Mont),
+                    "mersenne61" => systems.push(System::Mersenne61),
                     _ => panic!(
-                        "system should be one of {{all,hyperplonk,halo2,espresso_hyperplonk}}"
+                        "system should be one of {{all,bn254fr,mersenne127,goldilocksmont,myfr,mersenne61mont,mersenne61}}"
                     ),
-                },
-                "--circuit" => match value.as_str() {
-                    "vanilla_plonk" => circuit = Circuit::VanillaPlonk,
-                    "aggregation" => circuit = Circuit::Aggregation,
-                    "sha256" => circuit = Circuit::Sha256,
-                    _ => panic!("circuit should be one of {{aggregation,vanilla_plonk,sha256}}"),
                 },
                 "--k" => {
                     // Handle either "10..20" or a single integer "12".
@@ -304,14 +390,9 @@ fn parse_args() -> (Vec<System>, Circuit, Range<usize>) {
                 }
                 _ => {}
             }
-            (systems, circuit, k_range)
+            (systems, k_range)
         },
     );
-
-    // Ensure k >= the minimum required for this circuit.
-    if k_range.start < circuit.min_k() {
-        panic!("k should be at least {} for {circuit:?}", circuit.min_k());
-    }
 
     // Sort/deduplicate systems. If none specified, we default to all systems.
     let mut systems = systems.into_iter().sorted().dedup().collect_vec();
@@ -319,7 +400,7 @@ fn parse_args() -> (Vec<System>, Circuit, Range<usize>) {
         systems = System::all();
     };
 
-    (systems, circuit, k_range)
+    (systems, k_range)
 }
 
 /// Creates output directory/files for each system's logs (proof times, verify times, proof size).
@@ -336,7 +417,7 @@ fn create_output(systems: &[System]) {
 }
 
 /// Helper function for measuring the average prove time across multiple samples.
-fn sample<T>(system: System, k: usize, prove: impl Fn() -> T) -> T {
+fn sample<T>(k: usize, prove: impl Fn() -> T) -> T {
     let mut proof = None;
     // Decide how many times to repeat based on k. Smaller k => more repeats.
     let sample_size = sample_size(k);
