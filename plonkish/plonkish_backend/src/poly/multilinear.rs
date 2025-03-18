@@ -1,7 +1,7 @@
 use crate::{
     poly::Polynomial,
     util::{
-        algebra::{batch_bit_reverse},
+        algebra::batch_bit_reverse,
         arithmetic::{div_ceil, usize_from_bits_le, BooleanHypercube, Field},
         expression::Rotation,
         impl_index,
@@ -60,35 +60,6 @@ impl<F> MultilinearPolynomial<F> {
 
     pub fn iter(&self) -> impl Iterator<Item = &F> {
         self.evals.iter()
-    }
-
-}
-
-impl<F: Clone + std::ops::AddAssign + Copy> MultilinearPolynomial<F> {
-    pub fn coefficients(&self) -> Vec<F> {
-        self.evals.clone()
-    }
-
-    pub fn evaluate_hypercube(&self) -> Vec<F> {
-        let log_n = self.num_vars;
-        let n = self.evals.len();
-        let rank = batch_bit_reverse(log_n);
-        let mut res = self.evals.clone();
-        for i in 0..n {
-            if i < rank[i] {
-                (res[i], res[rank[i]]) = (res[rank[i]], res[i]);
-            }
-        }
-        for i in 0..log_n {
-            let m = 1 << i;
-            for j in (0..n).step_by(m * 2) {
-                for k in 0..m {
-                    let tmp = res[j + k];
-                    res[j + k + m] += tmp;
-                }
-            }
-        }
-        res
     }
 }
 
@@ -316,19 +287,31 @@ impl<'rhs, F: Field> AddAssign<&'rhs MultilinearPolynomial<F>> for MultilinearPo
     }
 }
 
-impl<'rhs, F: Field + Clone> AddAssign<(&'rhs F, &'rhs MultilinearPolynomial<F>)>
+impl<'rhs, F: Field> AddAssign<(&'rhs F, &'rhs MultilinearPolynomial<F>)>
     for MultilinearPolynomial<F>
 {
     fn add_assign(&mut self, (scalar, rhs): (&'rhs F, &'rhs MultilinearPolynomial<F>)) {
-        if self.num_vars == 0 {
-            *self = rhs.clone();
-            *self *= scalar;
-        } else {
-            parallelize(&mut self.evals, |(lhs, _)| {
-                for (lhs, rhs) in lhs.iter_mut().zip(rhs.evals.iter()) {
-                    *lhs += scalar.clone() * rhs.clone();
+        match (self.is_zero(), rhs.is_zero() | (scalar == &F::ZERO)) {
+            (_, true) => {}
+            (true, false) => {
+                *self = rhs.clone();
+                *self *= scalar;
+            }
+            (false, false) => {
+                assert_eq!(self.num_vars, rhs.num_vars);
+
+                if scalar == &F::ONE {
+                    *self += rhs;
+                } else if scalar == &-F::ONE {
+                    *self -= rhs;
+                } else {
+                    parallelize(&mut self.evals, |(lhs, start)| {
+                        for (lhs, rhs) in lhs.iter_mut().zip(rhs[start..].iter()) {
+                            *lhs += &(*scalar * rhs);
+                        }
+                    });
                 }
-            });
+            }
         }
     }
 }
@@ -364,7 +347,7 @@ impl<'rhs, F: Field> SubAssign<&'rhs MultilinearPolynomial<F>> for MultilinearPo
     }
 }
 
-impl<'rhs, F: Field + Clone> SubAssign<(&'rhs F, &'rhs MultilinearPolynomial<F>)>
+impl<'rhs, F: Field> SubAssign<(&'rhs F, &'rhs MultilinearPolynomial<F>)>
     for MultilinearPolynomial<F>
 {
     fn sub_assign(&mut self, (scalar, rhs): (&'rhs F, &'rhs MultilinearPolynomial<F>)) {
@@ -722,5 +705,34 @@ mod test {
                 );
             }
         }
+    }
+}
+
+
+impl<F: Clone + std::ops::AddAssign + Copy> MultilinearPolynomial<F> {
+    pub fn coefficients(&self) -> Vec<F> {
+        self.evals.clone()
+    }
+
+    pub fn evaluate_hypercube(&self) -> Vec<F> {
+        let log_n = self.num_vars;
+        let n = self.evals.len();
+        let rank = batch_bit_reverse(log_n);
+        let mut res = self.evals.clone();
+        for i in 0..n {
+            if i < rank[i] {
+                (res[i], res[rank[i]]) = (res[rank[i]], res[i]);
+            }
+        }
+        for i in 0..log_n {
+            let m = 1 << i;
+            for j in (0..n).step_by(m * 2) {
+                for k in 0..m {
+                    let tmp = res[j + k];
+                    res[j + k + m] += tmp;
+                }
+            }
+        }
+        res
     }
 }

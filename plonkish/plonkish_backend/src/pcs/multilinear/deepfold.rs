@@ -12,6 +12,7 @@ use crate::{
     },
     Error,
 };
+// use crate::poly::Polynomial;
 use ff::Field;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};

@@ -8,7 +8,7 @@ use crate::{
 mod basefold;
 mod brakedown;
 pub mod combined_virgo;
-pub mod deepfold;
+pub mod deepfold;                
 mod gemini;
 mod hyrax;
 mod ipa;
@@ -497,3 +497,4 @@ mod test {
         }
     }
 }
+
