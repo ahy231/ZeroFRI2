@@ -1,5 +1,6 @@
 // Standard Halo2 PLONK + KZG references.
 use halo2_proofs::{
+    halo2curves::secp256k1::Fp,
     plonk::{create_proof, keygen_pk, keygen_vk, verify_proof},
     poly::kzg::{
         commitment::ParamsKZG,
@@ -102,6 +103,22 @@ fn main() {
             }
             k_range.clone().for_each(|k| {
                 bench_hyperplonk::<Mersenne61, VanillaPlonk<Mersenne61>>(k);
+            });
+        }
+        System::Fr => {
+            unsafe {
+                MF = Some(CF::Fr);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<Fr, VanillaPlonk<Fr>>(k);
+            });
+        }
+        System::Fp => {
+            unsafe {
+                MF = Some(CF::Fp);
+            }
+            k_range.clone().for_each(|k| {
+                bench_hyperplonk::<Fp, VanillaPlonk<Fp>>(k);
             });
         }
     });
@@ -215,6 +232,8 @@ enum System {
     MyFr,
     Mersenne61Mont,
     Mersenne61,
+    Fr,
+    Fp,
 }
 
 impl System {
@@ -226,6 +245,7 @@ impl System {
             System::GoldilocksMont,
             System::MyFr,
             System::Mersenne61Mont,
+            System::Fr,
         ]
     }
 
@@ -276,7 +296,9 @@ impl System {
             | System::GoldilocksMont
             | System::MyFr
             | System::Mersenne61Mont
-            | System::Mersenne61 => match circuit {
+            | System::Mersenne61
+            | System::Fr
+            | System::Fp => match circuit {
                 Circuit::VanillaPlonk | Circuit::Aggregation | Circuit::Sha256 => true,
             },
         }
@@ -302,7 +324,9 @@ impl System {
             | System::GoldilocksMont
             | System::MyFr
             | System::Mersenne61Mont
-            | System::Mersenne61 => match circuit {
+            | System::Mersenne61
+            | System::Fr
+            | System::Fp => match circuit {
                 Circuit::VanillaPlonk => bench_hyperplonk::<F, VanillaPlonk<F>>(k),
                 Circuit::Aggregation => {
                     // Example aggregator circuit commented out:
@@ -326,6 +350,8 @@ impl Display for System {
             System::MyFr => write!(f, "myfr"),
             System::Mersenne61Mont => write!(f, "mersenne61mont"),
             System::Mersenne61 => write!(f, "mersenne61"),
+            System::Fr => write!(f, "fr"),
+            System::Fp => write!(f, "fp"),
         }
     }
 }
@@ -374,8 +400,10 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "myfr" => systems.push(System::MyFr),
                     "mersenne61mont" => systems.push(System::Mersenne61Mont),
                     "mersenne61" => systems.push(System::Mersenne61),
+                    "fr" => systems.push(System::Fr),
+                    "fp" => systems.push(System::Fp),
                     _ => panic!(
-                        "system should be one of {{all,bn254fr,mersenne127,goldilocksmont,myfr,mersenne61mont,mersenne61}}"
+                        "system should be one of {{all,bn254fr,mersenne127,goldilocksmont,myfr,mersenne61mont,mersenne61,fr,fp}}"
                     ),
                 },
                 "--k" => {

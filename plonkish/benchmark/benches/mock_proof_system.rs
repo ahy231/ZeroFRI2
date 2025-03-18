@@ -57,7 +57,7 @@ use plonkish_backend::{
 use rand::thread_rng;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::from_str;
+use serde_json::{from_str, to_string};
 use sha2::digest::Output;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -113,7 +113,7 @@ impl FieldFromStr for Fr {
     }
 
     fn to_enum() -> CF {
-        CF::Bn254Fr
+        CF::Fr
     }
 }
 
@@ -149,17 +149,11 @@ impl FieldFromStr for Fp {
 
 impl FieldFromStr for MyFr {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 32];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        MyFr(Bn254Fr {
-            value: FFBn254Fr::from_bytes(&bytes).unwrap(),
-        })
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
-        CF::Bn254Fr
+        CF::MyFr
     }
 }
 
@@ -177,15 +171,11 @@ impl FieldFromStr for FakeExtension {
 
 impl FieldFromStr for Mersenne61Mont {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 16];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        Mersenne61Mont::from_u128(u128::from_le_bytes(bytes))
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
-        CF::Mersenne61
+        CF::Mersenne61Mont
     }
 }
 
@@ -729,7 +719,10 @@ fn bench_fri(system: &System, k: usize) {
 
                 poly_map.insert(matrix_str.clone(), (comm, prover_data));
                 mle_evals.iter().for_each(|chunk| {
-                    let poly_str = chunk.iter().map(|s| format!("{:?}", s)).collect_vec();
+                    let poly_str = chunk
+                        .iter()
+                        .map(|s| serde_json::to_string(&s).unwrap())
+                        .collect_vec();
                     matrix_map.insert(poly_str, matrix_str.clone());
                 });
 
@@ -767,7 +760,10 @@ fn bench_fri(system: &System, k: usize) {
                 let polys = commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
                     .map(|(poly, _, _)| {
-                        let poly = poly.iter().map(|s| Val::from_str(&s)).collect_vec();
+                        let poly = poly
+                            .iter()
+                            .map(|s| serde_json::from_str(&s).unwrap())
+                            .collect_vec();
                         MultilinearPolynomial::new(poly)
                     })
                     .collect_vec();
@@ -789,7 +785,7 @@ fn bench_fri(system: &System, k: usize) {
                         (
                             p.evals()
                                 .into_iter()
-                                .map(|f| format!("{:?}", f))
+                                .map(|f| to_string(f).unwrap())
                                 .collect_vec(),
                             point,
                             eval,

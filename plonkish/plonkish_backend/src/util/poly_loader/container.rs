@@ -15,6 +15,7 @@ pub enum Field {
     Mersenne61Mont,
     Fp,
     MyFr,
+    Fr,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]

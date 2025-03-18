@@ -27,7 +27,11 @@ impl Loader {
 
         // Parse the JSON into MatrixContainer
         let container: MatrixContainer = from_str(&content).unwrap();
-        assert_eq!(self.field, container.field, "Field mismatch in loaded data");
+        assert_eq!(
+            self.field, container.field,
+            "Field mismatch in loaded data, expected {:?}, got {:?} in file {:?}",
+            self.field, container.field, file_path
+        );
 
         container
     }
