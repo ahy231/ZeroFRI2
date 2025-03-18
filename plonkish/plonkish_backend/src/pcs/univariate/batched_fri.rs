@@ -520,10 +520,6 @@ where
     }
 }
 
-fn seeded_rng() -> impl Rng {
-    ChaCha20Rng::seed_from_u64(0)
-}
-
 fn fold_row(evals: Vec<FakeExtension>, alpha: FakeExtension, g: MyFr) -> Vec<FakeExtension> {
     assert!(evals.len() % 2 == 0);
 

@@ -10,6 +10,7 @@ use num_bigint::BigInt;
 use p3_bn254_fr::{Bn254Fr, FFBn254Fr};
 use p3_challenger::FieldChallenger;
 use p3_matrix::Matrix;
+use plonkish_backend::pcs::multilinear::virgo::VirgoPCS;
 use plonkish_backend::piop::sum_check::classic::{ClassicSumCheck, CoefficientsProver};
 use plonkish_backend::piop::sum_check::{eq_xy_eval, SumCheck, VirtualPolynomial};
 use plonkish_backend::poly::univariate::UnivariatePolynomial;
@@ -56,7 +57,7 @@ use plonkish_backend::{
 use rand::thread_rng;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::from_str;
+use serde_json::{from_str, to_string};
 use sha2::digest::Output;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -108,25 +109,17 @@ pub trait FieldFromStr: DeserializeOwned + Clone + AddAssign + Copy + Debug {
 
 impl FieldFromStr for Fr {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 32];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        Fr::from_bytes(&bytes).unwrap()
+        serde_json::from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
-        CF::Bn254Fr
+        CF::Fr
     }
 }
 
 impl FieldFromStr for Mersenne127 {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 16];
-        let bytes_vec = bigint.to_bytes_le().1;
-        bytes[..bytes_vec.len()].copy_from_slice(&bytes_vec);
-        Mersenne127::from_u128(u128::from_le_bytes(bytes))
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
@@ -136,11 +129,7 @@ impl FieldFromStr for Mersenne127 {
 
 impl FieldFromStr for GoldilocksMont {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 16];
-        let bytes_vec = bigint.to_bytes_le().1;
-        bytes[..bytes_vec.len()].copy_from_slice(&bytes_vec);
-        GoldilocksMont::from_u128(u128::from_le_bytes(bytes))
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
@@ -150,11 +139,7 @@ impl FieldFromStr for GoldilocksMont {
 
 impl FieldFromStr for Fp {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 32];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        Fp::from_bytes(&bytes).unwrap()
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
@@ -164,17 +149,11 @@ impl FieldFromStr for Fp {
 
 impl FieldFromStr for MyFr {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 32];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        MyFr(Bn254Fr {
-            value: FFBn254Fr::from_bytes(&bytes).unwrap(),
-        })
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
-        CF::Bn254Fr
+        CF::MyFr
     }
 }
 
@@ -192,15 +171,11 @@ impl FieldFromStr for FakeExtension {
 
 impl FieldFromStr for Mersenne61Mont {
     fn from_str(s: &str) -> Self {
-        let bigint = BigInt::parse_bytes(s.strip_prefix("0x").unwrap().as_bytes(), 16).unwrap();
-        let mut bytes = [0u8; 16];
-        let bytes_le = bigint.to_bytes_le().1;
-        bytes[..bytes_le.len()].copy_from_slice(&bytes_le);
-        Mersenne61Mont::from_u128(u128::from_le_bytes(bytes))
+        from_str(s).unwrap()
     }
 
     fn to_enum() -> CF {
-        CF::Mersenne61
+        CF::Mersenne61Mont
     }
 }
 
@@ -744,7 +719,10 @@ fn bench_fri(system: &System, k: usize) {
 
                 poly_map.insert(matrix_str.clone(), (comm, prover_data));
                 mle_evals.iter().for_each(|chunk| {
-                    let poly_str = chunk.iter().map(|s| format!("{:?}", s)).collect_vec();
+                    let poly_str = chunk
+                        .iter()
+                        .map(|s| serde_json::to_string(&s).unwrap())
+                        .collect_vec();
                     matrix_map.insert(poly_str, matrix_str.clone());
                 });
 
@@ -782,7 +760,10 @@ fn bench_fri(system: &System, k: usize) {
                 let polys = commit_data.poly_points[open_pointer..open_pointer + size]
                     .into_iter()
                     .map(|(poly, _, _)| {
-                        let poly = poly.iter().map(|s| Val::from_str(&s)).collect_vec();
+                        let poly = poly
+                            .iter()
+                            .map(|s| serde_json::from_str(&s).unwrap())
+                            .collect_vec();
                         MultilinearPolynomial::new(poly)
                     })
                     .collect_vec();
@@ -804,7 +785,7 @@ fn bench_fri(system: &System, k: usize) {
                         (
                             p.evals()
                                 .into_iter()
-                                .map(|f| format!("{:?}", f))
+                                .map(|f| to_string(f).unwrap())
                                 .collect_vec(),
                             point,
                             eval,
@@ -1241,6 +1222,7 @@ enum System {
     Gemini,
     Hyrax,
     Deepfold,
+    Virgo,
 }
 
 impl System {
@@ -1259,6 +1241,7 @@ impl System {
             System::Gemini,
             System::Hyrax,
             System::Deepfold,
+            System::Virgo,
         ]
     }
 
@@ -1397,6 +1380,9 @@ impl System {
             System::ZeromorphFriV2 => {
                 bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
+            System::Virgo => {
+                unimplemented!("Virgo is not implemented for mock proof system")
+            }
         }
     }
 }
@@ -1417,6 +1403,7 @@ impl Display for System {
             System::P3Fri => write!(f, "fri"),
             System::ZeromorphFriV2 => write!(f, "zeromorph_fri_v2"),
             System::Deepfold => write!(f, "deepfold"),
+            System::Virgo => write!(f, "virgo"),
         }
     }
 }
@@ -1440,8 +1427,10 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "hyrax" => systems.push(System::Hyrax),
                     "fri" => systems.push(System::P3Fri),
                     "zeromorph_fri_v2" => systems.push(System::ZeromorphFriV2),
+                    "virgo" => systems.push(System::Virgo),
+                    "deepfold" => systems.push(System::Deepfold),
                     _ => panic!(
-                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne}}"
+                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne,basefoldblake2s,brakedown,brakedownblake2s,circle,gemini,hyrax,fri,zeromorph_fri_v2,virgo,deepfold}}"
                     ),
                 },
                 "--k" => {

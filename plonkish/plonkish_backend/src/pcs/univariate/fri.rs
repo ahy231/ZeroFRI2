@@ -320,6 +320,13 @@ where
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
 
+        for eval in evals {
+            let poly = polys[eval.poly];
+            let comm = comms[eval.poly];
+            let point = points[eval.point];
+            Self::open(pp, poly, comm, &point, &eval.value, transcript).unwrap();
+        }
+
         Ok(())
     }
 
@@ -354,6 +361,11 @@ where
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
         let comms = comms.into_iter().collect_vec();
+        for eval in evals {
+            let comm = comms[eval.poly];
+            let point = points[eval.point];
+            Self::verify(vp, comm, &point, &eval.value, transcript).unwrap();
+        }
         Ok(())
     }
 }
