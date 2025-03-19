@@ -1,6 +1,7 @@
 #![allow(warnings, unused)]
 pub mod batched_fri;
 mod fri;
+pub mod fri_p3;
 mod kzg;
 
 pub use fri::{
