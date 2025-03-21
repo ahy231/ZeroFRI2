@@ -269,11 +269,15 @@ where
         let mut roots = Vec::with_capacity(comms.len());
 
         comms.iter().for_each(|comm| {
-            let root = &comm.codeword_tree[comm.codeword_tree.len() - 1][0];
-            roots.push(root);
+            if comm.codeword.len() > 0 {
+                let root = &comm.codeword_tree[comm.codeword_tree.len() - 1][0];
+                roots.push(root.clone());
+            } else {
+                roots.push(Output::<H>::default());
+            }
         });
 
-        transcript.write_commitments(roots).unwrap();
+        transcript.write_commitments(roots.iter()).unwrap();
         Ok(comms)
     }
 
@@ -287,6 +291,12 @@ where
         polys_vec
             .par_iter()
             .map(|poly| {
+                if poly.coeffs().len() < 2 {
+                    return Ok(Self::Commitment {
+                        codeword: vec![],
+                        codeword_tree: vec![],
+                    });
+                }
                 let comm = Self::commit(pp, poly);
                 comm
             })
@@ -305,6 +315,10 @@ where
         use std::env;
         //	let key = "RAYON_NUM_THREADS";
         //	env::set_var(key, "8");
+
+        if comm.codeword.len() == 0 {
+            return Ok(());
+        }
 
         open_helper(pp, poly, comm, point, eval, transcript).0
     }
@@ -339,7 +353,16 @@ where
 
         Ok(roots
             .iter()
-            .map(|r| FriCommitment::from_root(r.clone()))
+            .map(|r| {
+                if *r != Output::<H>::default() {
+                    FriCommitment::from_root(r.clone())
+                } else {
+                    Self::Commitment {
+                        codeword: vec![],
+                        codeword_tree: vec![],
+                    }
+                }
+            })
             .collect_vec())
     }
 
@@ -350,6 +373,9 @@ where
         eval: &F,
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
+        if comm.codeword.len() == 0 {
+            return Ok(());
+        }
         verify_helper(vp, comm, point, eval, transcript).0
     }
 
@@ -906,7 +932,9 @@ fn commit_phase<F: PrimeField, H: Hash>(
 
         new_oracle = &oracles[i];
         trees.push(merkelize::<F, H>(&new_oracle));
-        root = trees[i][trees[i].len() - 1][0].clone();
+        if trees[i].len() > 0 && trees[i][0].len() > 0 {
+            root = trees[i][trees[i].len() - 1][0].clone();
+        }
     }
 
     transcript.write_commitment(&root).unwrap();
