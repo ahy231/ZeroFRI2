@@ -62,7 +62,7 @@ fn main() {
                 MF = Some(CF::Bn254Fr);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<Fr, VanillaPlonk<Fr>>(k);
+                bench_hyperplonk::<Fr, VanillaPlonk<Fr>>(system, k);
             });
         }
         System::Mersenne127 => {
@@ -70,7 +70,7 @@ fn main() {
                 MF = Some(CF::Mersenne127);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<Mersenne127, VanillaPlonk<Mersenne127>>(k);
+                bench_hyperplonk::<Mersenne127, VanillaPlonk<Mersenne127>>(system, k);
             });
         }
         System::GoldilocksMont => {
@@ -78,7 +78,7 @@ fn main() {
                 MF = Some(CF::GoldilocksMont);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<GoldilocksMont, VanillaPlonk<GoldilocksMont>>(k);
+                bench_hyperplonk::<GoldilocksMont, VanillaPlonk<GoldilocksMont>>(system, k);
             });
         }
         System::MyFr => {
@@ -86,7 +86,7 @@ fn main() {
                 MF = Some(CF::MyFr);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<MyFr, VanillaPlonk<MyFr>>(k);
+                bench_hyperplonk::<MyFr, VanillaPlonk<MyFr>>(system, k);
             });
         }
         System::Mersenne61Mont => {
@@ -94,7 +94,7 @@ fn main() {
                 MF = Some(CF::Mersenne61Mont);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<Mersenne61Mont, VanillaPlonk<Mersenne61Mont>>(k);
+                bench_hyperplonk::<Mersenne61Mont, VanillaPlonk<Mersenne61Mont>>(system, k);
             });
         }
         System::Mersenne61 => {
@@ -102,7 +102,7 @@ fn main() {
                 MF = Some(CF::Mersenne61);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<Mersenne61, VanillaPlonk<Mersenne61>>(k);
+                bench_hyperplonk::<Mersenne61, VanillaPlonk<Mersenne61>>(system, k);
             });
         }
         System::Fr => {
@@ -110,7 +110,7 @@ fn main() {
                 MF = Some(CF::Fr);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<Fr, VanillaPlonk<Fr>>(k);
+                bench_hyperplonk::<Fr, VanillaPlonk<Fr>>(system, k);
             });
         }
         System::Fp => {
@@ -118,7 +118,7 @@ fn main() {
                 MF = Some(CF::Fp);
             }
             k_range.clone().for_each(|k| {
-                bench_hyperplonk::<Fp, VanillaPlonk<Fp>>(k);
+                bench_hyperplonk::<Fp, VanillaPlonk<Fp>>(system, k);
             });
         }
     });
@@ -129,6 +129,7 @@ fn bench_hyperplonk<
     F: ff::PrimeField + Serialize + std::hash::Hash + for<'de> serde::Deserialize<'de>,
     C: CircuitExt<F>,
 >(
+    system: &System,
     k: usize,
 ) {
     // 1) Type definitions for the FRI-based PCS.
@@ -170,8 +171,14 @@ fn bench_hyperplonk<
 
     unsafe {
         let dumper = Dumper::new();
-        dumper.dump(&CONTAINER.clone().unwrap(), "mock_data.json");
-        dumper.dump(&PCS_RECORDER.clone().unwrap(), "mock_pcs_recorder.json");
+        dumper.dump(
+            &CONTAINER.clone().unwrap(),
+            format!("mock_data-{system}-{k}.json").as_str(),
+        );
+        dumper.dump(
+            &PCS_RECORDER.clone().unwrap(),
+            format!("mock_pcs_recorder-{system}-{k}.json").as_str(),
+        );
     }
 }
 
@@ -327,7 +334,7 @@ impl System {
             | System::Mersenne61
             | System::Fr
             | System::Fp => match circuit {
-                Circuit::VanillaPlonk => bench_hyperplonk::<F, VanillaPlonk<F>>(k),
+                Circuit::VanillaPlonk => bench_hyperplonk::<F, VanillaPlonk<F>>(self, k),
                 Circuit::Aggregation => {
                     // Example aggregator circuit commented out:
                     // bench_hyperplonk::<AggregationCircuit<Bn256>>(k)

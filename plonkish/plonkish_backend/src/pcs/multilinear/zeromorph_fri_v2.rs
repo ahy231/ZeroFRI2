@@ -358,6 +358,7 @@ where
             transcript,
         )?;
 
+        // let timer = Instant::now();
         let q_evals = quotients.iter().map(|q| q.evaluate(&x)).collect_vec();
         transcript.write_field_elements(&q_evals);
         BatchedFri::<MyFr, H>::batch_open(
@@ -368,12 +369,15 @@ where
             q_evals
                 .iter()
                 .rev()
-                .map(|q_eval| Evaluation::new(0, 0, *q_eval))
+                .enumerate()
+                .map(|(idx, q_eval)| Evaluation::new(idx, idx, *q_eval))
                 .collect_vec()
                 .as_slice()
                 .as_ref(),
             transcript,
         )?;
+        // let duration = timer.elapsed();
+        // println!("batch verify {:?}", duration);
 
         let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
 

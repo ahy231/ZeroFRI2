@@ -2,3 +2,4 @@ plonkish_backend/target
 plonkish/target
 plonkish/benchmark/Cargo.toml.bak 
 plonkish/p3-utils/target
+plonkish/benchmark/bench_data/mock

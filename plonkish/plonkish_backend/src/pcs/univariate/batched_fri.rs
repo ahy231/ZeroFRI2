@@ -1,18 +1,20 @@
 use crate::pcs::Evaluation;
 use crate::poly::Polynomial;
-use crate::util::fake_extension::{FakeExtension, MyFr};
+use crate::util::fake_extension::MyFr;
 use crate::util::hash::Hash;
 use crate::{
     pcs::PolynomialCommitmentScheme,
     poly::univariate::{CoefficientBasis, UnivariatePolynomial},
 };
 use ff::{Field, PrimeField};
+use generic_array::typenum::U256;
 use itertools::{izip, Itertools};
 use p3_baby_bear::Poseidon2BabyBear;
 use p3_challenger::{HashChallenger, SerializingChallenger32};
 use p3_commit::{ExtensionMmcs, Mmcs, PolynomialSpace, TwoAdicMultiplicativeCoset};
 use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
 use p3_field::extension::BinomialExtensionField;
+use p3_field::ExtensionField;
 use p3_field::PrimeField64;
 use p3_field::{PrimeCharacteristicRing, TwoAdicField};
 use p3_fri::{FriConfig, TwoAdicFriPcs};
@@ -36,7 +38,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 type Val = MyFr;
-type Challenge = FakeExtension;
+type Challenge = BinomialExtensionField<MyFr, 1, MyFr>;
 
 type ByteHash = Keccak256Hash;
 type FieldHash = SerializingHasher32<ByteHash>;
@@ -50,9 +52,6 @@ type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
 type Dft = Radix2DitParallel<Val>;
 type Challenger = SerializingChallenger32<Val, HashChallenger<u8, ByteHash, 32>>;
 
-type FriPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
-
-pub static mut pcs: Option<TwoAdicFriPcs<MyFr, Dft, ValMmcs, ChallengeMmcs>> = None;
 pub static mut val_mmcs: Option<ValMmcs> = None;
 pub static mut challenge_mmcs: Option<ChallengeMmcs> = None;
 pub static mut commitment: Option<p3_symmetric::Hash<MyFr, u8, 32>> = None;
@@ -64,12 +63,11 @@ pub static mut num_queries: usize = 0;
 pub static mut proof_of_work_bits: usize = 0;
 pub static mut degree_bound: usize = 0;
 
-pub static mut query_paths_static: Option<Vec<(Vec<FakeExtension>, Vec<usize>, Vec<MyFr>)>> = None;
-pub static mut merkle_paths_static: Option<Vec<Vec<(Vec<Vec<FakeExtension>>, Vec<[u8; 32]>)>>> =
-    None;
+pub static mut query_paths_static: Option<Vec<(Vec<Challenge>, Vec<usize>, Vec<MyFr>)>> = None;
+pub static mut merkle_paths_static: Option<Vec<Vec<(Vec<Vec<Challenge>>, Vec<[u8; 32]>)>>> = None;
 pub static mut first_merkle_paths_static: Option<Vec<Vec<[u8; 32]>>> = None;
 pub static mut intermediate_oracles_static: Option<Vec<MyFr>> = None;
-pub static mut final_value_static: Option<FakeExtension> = None;
+pub static mut final_value_static: Option<Challenge> = None;
 pub static mut first_oracle_static: Option<p3_symmetric::Hash<MyFr, u8, 32>> = None;
 
 pub static mut ldes: Option<HashMap<Vec<MyFr>, Vec<MyFr>>> = None;
@@ -133,11 +131,6 @@ where
             proof_of_work_bits = 8;
             val_mmcs = Some(ValMmcs::new(field_hash, compress));
             challenge_mmcs = Some(ChallengeMmcs::new(val_mmcs.clone().unwrap()));
-            pcs = Some(FriPcs::new(
-                Dft::default(),
-                val_mmcs.clone().unwrap(),
-                new_fri_config(),
-            ));
             ldes = Some(HashMap::new());
         }
 
@@ -268,23 +261,23 @@ where
         let num_vars = log2_strict_usize(polys.clone().into_iter().next().unwrap().coeffs().len());
         let lambda = transcript.squeeze_challenge();
         let mut folded =
-            vec![FakeExtension::from(<Val as ff::Field>::ZERO); 1 << (num_vars + log_rate)];
+            vec![Challenge::from(<Val as ff::Field>::ZERO); 1 << (num_vars + log_rate)];
         let mmcs_val = unsafe { val_mmcs.clone().unwrap() };
         let mmcs_challenge = unsafe { challenge_mmcs.clone().unwrap() };
         let mut gen = Val::two_adic_generator(num_vars + log_rate);
 
-        let mut trees = Vec::with_capacity(num_vars - 1);
-        let mut comms = Vec::with_capacity(num_vars - 1);
-        let mut tree_evals = Vec::with_capacity(num_vars - 1);
+        let mut trees = Vec::with_capacity(num_vars);
+        let mut comms = Vec::with_capacity(num_vars);
+        let mut tree_evals = Vec::with_capacity(num_vars);
         for i in 0..num_vars {
-            let alpha = FakeExtension::from(transcript.squeeze_challenge());
+            let alpha = Challenge::from(transcript.squeeze_challenge());
 
             folded = folded
                 .into_iter()
                 .zip(quotients[i].clone().into_iter())
                 .enumerate()
                 .map(|(j, (a, b))| {
-                    a + FakeExtension::from(b)
+                    a + Challenge::from(b)
                         * (<Val as ff::Field>::ONE + lambda * gen.pow(&[j as u64]))
                 })
                 .collect_vec();
@@ -364,6 +357,56 @@ where
             }
             merkle_paths.push(cur_query_paths);
         }
+
+        for (cur_path, _indices, reduced_openings) in query_paths.iter() {
+            let cur_path_base = cur_path
+                .iter()
+                .map(|e| {
+                    <BinomialExtensionField<MyFr, 1> as ExtensionField<MyFr>>::as_base(e).unwrap()
+                })
+                .collect_vec();
+            let base_ref = cur_path_base.iter().collect_vec();
+            transcript.write_field_elements(base_ref);
+            transcript.write_field_elements(reduced_openings);
+        }
+
+        for mp in merkle_paths.iter() {
+            for (tree, _idx) in mp.iter() {
+                let tree_base = tree
+                    .iter()
+                    .flat_map(|t| {
+                        t.iter().map(|e| {
+                            <BinomialExtensionField<MyFr, 1> as ExtensionField<MyFr>>::as_base(e)
+                                .unwrap()
+                        })
+                    })
+                    .collect_vec();
+                let base_ref = tree_base.iter().collect_vec();
+                transcript.write_field_elements(base_ref);
+            }
+        }
+
+        for fp in first_merkle_paths.iter() {
+            for el in fp.iter() {
+                let mut field_element = <MyFr as ff::Field>::ZERO;
+                for byte in el.as_ref() {
+                    field_element *= MyFr::from_u16(1u16 << 8);
+                    field_element += MyFr::from_u8(*byte);
+                }
+                transcript.write_field_element(&field_element);
+            }
+        }
+
+        transcript.write_field_elements(comms.iter().collect_vec());
+
+        transcript.write_field_element(&folded[0].as_base().unwrap());
+
+        let mut field_element = <MyFr as ff::Field>::ZERO;
+        for byte in comm.as_ref() {
+            field_element *= MyFr::from_u16(1u16 << 8);
+            field_element += MyFr::from_u8(*byte);
+        }
+        transcript.write_field_element(&field_element);
 
         unsafe {
             query_paths_static = Some(query_paths);
@@ -455,9 +498,9 @@ where
 
         for (q, (cur_path, indices, reduced_openings), mps, fmp) in izip!(
             queries,
-            query_paths.into_iter(),
-            merkle_paths.into_iter(),
-            first_merkle_paths.into_iter()
+            query_paths.clone().into_iter(),
+            merkle_paths.clone().into_iter(),
+            first_merkle_paths.clone().into_iter()
         ) {
             let mut num_vars_copy = degree_bound_ * rate;
             let mut folded = <MyFr as ff::Field>::ZERO;
@@ -494,7 +537,7 @@ where
                 let sibling = q_copy ^ (num_vars_copy / 2);
 
                 let alpha = fold_challenges[i];
-                let mut evals = vec![cur_path[i].value; 2];
+                let mut evals = vec![cur_path[i].as_base().unwrap(); 2];
                 assert!(
                     q_copy / (num_vars_copy / 2) < evals.len(),
                     "q_copy: {}, num_vars_copy: {}, evals.len(): {}",
@@ -513,24 +556,48 @@ where
                 num_vars_copy >>= 1;
             }
 
-            assert!(folded == final_value.value);
+            assert!(folded == final_value.as_base().unwrap());
         }
+
+        for (cur_path, _indices, reduced_openings) in query_paths.iter() {
+            transcript.read_field_elements(cur_path.len());
+            transcript.read_field_elements(reduced_openings.len());
+        }
+
+        for mp in merkle_paths.iter() {
+            for (tree, _idx) in mp.iter() {
+                for e in tree.iter() {
+                    transcript.read_field_elements(e.len());
+                }
+            }
+        }
+
+        for fp in first_merkle_paths.iter() {
+            for el in fp.iter() {
+                transcript.read_field_element();
+            }
+        }
+
+        transcript.read_field_elements(log_degree_bound);
+
+        transcript.read_field_element();
+        transcript.read_field_element();
 
         Ok(())
     }
 }
 
-fn fold_row(evals: Vec<FakeExtension>, alpha: FakeExtension, g: MyFr) -> Vec<FakeExtension> {
+fn fold_row(evals: Vec<Challenge>, alpha: Challenge, g: MyFr) -> Vec<Challenge> {
     assert!(evals.len() % 2 == 0);
 
     let half = evals.len() / 2;
     let f0_evals = (0..half)
-        .map(|i| (evals[i] + evals[half + i]) / FakeExtension::from(MyFr::TWO))
+        .map(|i| (evals[i] + evals[half + i]) / Challenge::from(MyFr::TWO))
         .collect_vec();
     let f1_evals = (0..half)
         .map(|i| {
             (evals[i] - evals[half + i])
-                / (FakeExtension::from(MyFr::TWO) * FakeExtension::from(g.pow(&[i as u64])))
+                / (Challenge::from(MyFr::TWO) * Challenge::from(g.pow(&[i as u64])))
         })
         .collect_vec();
 
