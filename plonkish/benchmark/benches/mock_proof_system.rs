@@ -181,11 +181,20 @@ fn bench_pcs<
         + InMemoryTranscript<Param = ()>,
 {
     let loader = Loader::new(F::to_enum());
-    let commit_data = loader.load(format!("mock_data-{:?}-{}.json", F::to_enum(), k).as_str());
+    let commit_data =
+        loader.load(format!("bench_data/mock/mock_data-{:?}-{}.json", F::to_enum(), k).as_str());
     let mut commit_pointer = 0;
     let mut open_pointer = 0;
     let instructions: Vec<(PcsOps, usize)> = serde_json::from_reader(
-        File::open(format!("mock_pcs_recorder-{:?}-{}.json", F::to_enum(), k).as_str()).unwrap(),
+        File::open(
+            format!(
+                "bench_data/mock/mock_pcs_recorder-{:?}-{}.json",
+                F::to_enum(),
+                k
+            )
+            .as_str(),
+        )
+        .unwrap(),
     )
     .unwrap();
 

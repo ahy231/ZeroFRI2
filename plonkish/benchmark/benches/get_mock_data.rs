@@ -173,11 +173,11 @@ fn bench_hyperplonk<
         let dumper = Dumper::new();
         dumper.dump(
             &CONTAINER.clone().unwrap(),
-            format!("mock_data-{system}-{k}.json").as_str(),
+            format!("bench_data/mock/mock_data-{system}-{k}.json").as_str(),
         );
         dumper.dump(
             &PCS_RECORDER.clone().unwrap(),
-            format!("mock_pcs_recorder-{system}-{k}.json").as_str(),
+            format!("bench_data/mock/mock_pcs_recorder-{system}-{k}.json").as_str(),
         );
     }
 }
