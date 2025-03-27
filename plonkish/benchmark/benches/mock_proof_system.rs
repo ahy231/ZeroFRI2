@@ -33,7 +33,7 @@ use plonkish_backend::pcs::mock_pcs::PcsOps;
 use plonkish_backend::pcs::multilinear::deepfold::Deepfold;
 use plonkish_backend::pcs::multilinear::{
     interpolate_over_boolean_hypercube_with_copy, Basefold, Gemini, MultilinearBrakedown,
-    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFriV2,
+    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFriV2, ZeromorphFriV3,
 };
 use plonkish_backend::pcs::univariate::UnivariateKzg;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
@@ -211,17 +211,34 @@ fn bench_pcs<
     let mut records = Vec::new();
 
     // setup and trim
-    let param = P::setup(
-        commit_data.poly_size,
-        commit_data.batch_size,
-        &mut thread_rng(),
-    )
-    .unwrap();
-    let (pp, vp) = P::trim(&param, commit_data.poly_size, commit_data.batch_size).unwrap();
+    let (param, duration) = sample(
+        k,
+        || (),
+        |_| {
+            P::setup(
+                commit_data.poly_size,
+                commit_data.batch_size,
+                &mut thread_rng(),
+            )
+            .unwrap()
+        },
+        |param| P::trim(&param, commit_data.poly_size, commit_data.batch_size).unwrap(),
+    );
+    let (pp, vp) = param;
+    records.push(Record {
+        method: PcsOps::Setup,
+        poly_num: commit_data.batch_size,
+        poly_vars: commit_data.poly_size,
+        time: duration,
+        size: None,
+    });
 
     // commit and open
     for (ops, size) in instructions {
         match ops {
+            PcsOps::Setup => {
+                unreachable!("Setup should not be in the instructions");
+            }
             PcsOps::Commit => {
                 match commit_data.matrix_widths[0][commit_pointer] {
                     1 => {
@@ -619,7 +636,7 @@ enum System {
     BrakedownBlake2s,
     ZeromorphFri,
     ZeromorphFriV2,
-    // ZeromorphFriV3,
+    ZeromorphFriV3,
     P3Fri,
     Circle,
     Gemini,
@@ -788,9 +805,10 @@ impl System {
             }
             System::Virgo => {
                 unimplemented!("Virgo is not implemented for mock proof system")
-            } // System::ZeromorphFriV3 => {
-              //     bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
-              // }
+            }
+            System::ZeromorphFriV3 => {
+                bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
+            }
         }
     }
 }
@@ -812,7 +830,7 @@ impl Display for System {
             System::ZeromorphFriV2 => write!(f, "zeromorph_fri_v2"),
             System::Deepfold => write!(f, "deepfold"),
             System::Virgo => write!(f, "virgo"),
-            // System::ZeromorphFriV3 => write!(f, "zeromorph_fri_v3"),
+            System::ZeromorphFriV3 => write!(f, "zeromorph_fri_v3"),
         }
     }
 }
@@ -836,7 +854,7 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "hyrax" => systems.push(System::Hyrax),
                     "fri" => systems.push(System::P3Fri),
                     "zeromorph_fri_v2" => systems.push(System::ZeromorphFriV2),
-                    // "zeromorph_fri_v3" => systems.push(System::ZeromorphFriV3),
+                    "zeromorph_fri_v3" => systems.push(System::ZeromorphFriV3),
                     "virgo" => systems.push(System::Virgo),
                     "deepfold" => systems.push(System::Deepfold),
                     _ => panic!(

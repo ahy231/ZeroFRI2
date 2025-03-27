@@ -121,6 +121,7 @@ pub static mut ldes: Option<HashMap<Vec<Val>, Vec<Val>>> = None;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(bound(serialize = "F: Serialize", deserialize = "F: DeserializeOwned"))]
 pub struct FriP3Commitment<F: PrimeField, H: Hash> {
+    OUTPUT: [Output<H>; 1],
     phantom: PhantomData<(F, H)>,
 }
 
@@ -142,7 +143,7 @@ impl<F: PrimeField, H: Hash> Clone for FriP3<F, H> {
 
 impl<F: PrimeField, H: Hash> AsRef<[Output<H>]> for FriP3Commitment<F, H> {
     fn as_ref(&self) -> &[Output<H>] {
-        &[]
+        &self.OUTPUT
     }
 }
 
@@ -236,7 +237,7 @@ where
             degree_bound = degree;
         }
 
-        Ok(vec![])
+        Ok(vec![FriP3Commitment::default()])
     }
 
     fn open(

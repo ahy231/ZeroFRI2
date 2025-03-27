@@ -62,6 +62,7 @@ pub static mut PCS_RECORDER: Option<Vec<(PcsOps, usize)>> = None;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum PcsOps {
+    Setup,
     Commit,
     Open,
     Verify,
