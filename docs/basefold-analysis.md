@@ -21,21 +21,20 @@ $$
 $$
 
 2. 求值点 $\mathbf{u}$
-
 3. 运算值 $v=\tilde{f}(\mathbf{u})$
 4. IOPP.query 阶段的重复查询次数 $l$
 5. FRI 协议中的 blow up factor: $\mathcal{R}$
 
 **Witness** 
 
-- MLE  $\tilde{f}$ 的 Evaluation Form 向量 $\mathbf{a}=(a_0, a_1, \ldots, a_{N - 1})$
+- MLE  $\tilde{f}$ 的 Evaluation Form 向量 $\mathbf{a}=(a_0, a_1, \ldots, a_{N - 1})$ ，即 $a_i = \tilde{f}(\mathsf{bits}(i))$ ，
 
 满足
 $$
-\tilde{f}(X_0, X_1, X_2, \ldots, X_{d - 1}) = \sum_{\mathbf{b}\in\{0,1\}^d}a_{\mathbf{b}}\cdot eq_{\mathbf{b}}(X_0, X_1, X_2, \ldots, X_{d - 1})
+\tilde{f}(X_0, X_1, X_2, \ldots, X_{d - 1}) = \sum_{\mathbf{b}\in\{0,1\}^d} \tilde{f}(\mathbf{b})\cdot eq_{\mathbf{b}}(X_0, X_1, X_2, \ldots, X_{d - 1})
 $$
 
----
+
 
 对应代码实现中传入的参数为
 
@@ -46,6 +45,14 @@ verify_basefold_evaluation_arg_multilinear_basis(len(ff_code), commit=commit, pr
 
 ## Prover
 
+### Encoding
+
+输入：$\tilde{f}$ 的在 boolean hypercube 上的值， $\mathbf{a}=(a_0, a_1, \ldots, a_{N - 1})$ 。先将其编码成 foldable code，再用 basefold 的 eval 协议。
+
+![](./img/image.png)
+
+- 编码过程的计算复杂度为 $\frac{\mathcal{R}}{2} \cdot dN ~ \mathbb{F}_{\mathsf{mul}}$ 。
+
 ### Round 1
 
 Prover 发送 $h^{(d)}(X)$ 的取值，$(h^{(d)}(0), h^{(d)}(1), h^{(d)}(2))$
@@ -53,11 +60,11 @@ $$
 h^{(d)}(X) = \sum_{b_1,b_2, \ldots, b_d\in\{0,1\}^2}f(X, b_1, b_2, \ldots, b_d)\cdot \tilde{eq}((X, b_1, b_2, \ldots, b_d), \mathbf{u})
 $$
 
----
+#### Prover Cost Round 1
 
 分析 Round 1 的算法复杂度：
 
-1. 计算 $\vec{c} = \tilde{eq}_{\bf{z}}(\vec{b})$ ，其中 $\vec{b} = \{0,1\}^d$ ，也就是计算在 hypercube 上的取值，总共计算 $2^d$ 个值。
+1. 计算 $\vec{c} = \tilde{eq}_{\bf{u}}(\vec{b})$ ，其中 $\vec{b} = \{0,1\}^d$ ，也就是计算在 hypercube 上的取值，总共计算 $2^d$ 个值。
 
 ```python
 eq = MLEPolynomial.eqs_over_hypercube(us)
@@ -83,13 +90,18 @@ def eqs_over_hypercube(cls, rs):
 这里复杂度的具体分析与 ph23 中分析一致，直接借用分析结果，复杂度为 $(2^d - 1) ~ \mathbb{F}_{\mathsf{mul}}$ 。
 
 2. Prover 计算 $h_d(X)$ 并发送给 Verifier。
+
 由于 $h_d(X)$ 是一个 $2$ 次的多项式，因此计算 $h_d(0), h_d(1), h_d(2)$ 的值并发送给 Verifier 。
+
+例如 $d = 3$ ，则
 
 $$
 \begin{split}
-h^{(d)}(0) &= a_0\cdot e_0 + a_1\cdot e_1 + a_2\cdot e_2 + a_3\cdot e_3 + \ldots + a_{2^{d - 1} - 1} \cdot e_{2^{d - 1} - 1}\\
-h^{(d)}(1) &= a_4\cdot e_4 + a_5\cdot e_5 + a_6\cdot e_6 + a_7\cdot e_7 + \ldots + a_{2^d - 1} \cdot e_{2^d - 1}\\
-h^{(d)}(2) &= \sum_{i=0}^{2^{d - 1} - 1} (2\cdot a_{i+4} - a_i)\cdot (2\cdot e_{i+4} - e_i) \\
+h^{(d)}(0) &= a_0\cdot e_0 + a_1\cdot e_1 + a_2\cdot e_2 + a_3\cdot e_3 \\
+h^{(d)}(1) &= a_4\cdot e_4 + a_5\cdot e_5 + a_6\cdot e_6 + a_7\cdot e_7 \\
+h^{(d)}(2) &= \sum_{i=0}^{3} (2\cdot a_{i+4} - a_i)\cdot (2\cdot e_{i+4} - e_i) \\
+& = \sum_{i=0}^{3} (4 a_{i+4} \cdot e_{i+4}  + a_ie_i - 2 \cdot a_{i}e_{i + 4} - 2 a_{i+4}e_i)\\
+& = 4 \cdot h^{(d)}(1) + h^d(0) - 2 \cdot \sum_{i=0}^{3} a_{i}e_{i + 4} - 2 \cdot \sum_{i=0}^{3} a_{i + 4}e_{i}
 \end{split}
 $$
 
@@ -100,20 +112,46 @@ h_eval_at_2 = sum([ (2 * f_high[j] - f_low[j]) * (2 * eq_high[j] - eq_low[j]) fo
 h_poly_vec.append([h_eval_at_0, h_eval_at_1, h_eval_at_2])
 ```
 
+对于求 $h^{(d)}(X)$ ，进行分解要满足
+
+$$
+\begin{align}
+ & 1 - X = a \cdot (1 - 1) + b \cdot (1 - 0)  \\
+ & X = a \cdot 1 + b \cdot (1 - 0)
+\end{align}
+$$
+得到
+
+$$
+a = X, \quad b = 1 - X
+$$
+因此对于 $X = 2$ ，有 $a = 2, b = -1$ ，因此
+
+$$
+\begin{align}
+ & \tilde{eq}((u_0, u_1, u_2), (b_0, b_1, 2)) = 2 \times \tilde{eq}((u_0, u_1, u_2), (b_0, b_1, 1)) - \tilde{eq}((u_0, u_1, u_2), (b_0, b_1, 0))  \\
+\end{align}
+$$
+
+一般通用公式为
+$$
+h^{(d)}(X) = \sum_{\mathbf{b} \in \{0,1\}^{d - 1}} (X \cdot f(\mathsf{b},1) + (1 - X) \cdot f(\mathsf{b}, 0)) \cdot  (X \cdot \tilde{eq}(\mathsf{b},1) + (1 - X) \cdot \tilde{eq}(\mathsf{b}, 0))
+$$
+
 - 计算 $h^{(d)}(0)$ 复杂度为 $2^{d - 1} ~ \mathbb{F}_{\mathsf{mul}}$
 - 计算 $h^{(d)}(1)$ 复杂度为 $2^{d - 1} ~ \mathbb{F}_{\mathsf{mul}}$
-- 计算 $h^{(d)}(0)$ 复杂度为 $3 \cdot 2^{d - 1}  ~ \mathbb{F}_{\mathsf{mul}}$
+- 计算 $h^{(d)}(2)$ 复杂度为 $(2 \cdot 2^{d - 1} + 3) ~ \mathbb{F}_{\mathsf{mul}}$
 
 总计复杂度为：
 
 $$
-5 \cdot 2^{d - 1}  ~ \mathbb{F}_{\mathsf{mul}}
+(4 \cdot 2^{d - 1} + 3)  ~ \mathbb{F}_{\mathsf{mul}} = (2N + 3)  ~ \mathbb{F}_{\mathsf{mul}}
 $$
 
 因此这一轮的总复杂度为
 
 $$
-(7 \cdot 2^{d - 1} - 1)  ~ \mathbb{F}_{\mathsf{mul}}
+(3N + 2)  ~ \mathbb{F}_{\mathsf{mul}}
 $$
 
 Prover 发送的有
@@ -144,7 +182,7 @@ h^{(i)}(X) = \sum_{\vec{b}\in\{0,1\}^{i - 1}}f(\vec{b}, X, \alpha_i, \alpha_{i +
 $$
 等式右边同样是一个关于 $X$ 次数为 2 的 Univariate Polynomial，因此 Prover 可以根据 $\mathbf{a}^{(i)}$ 计算出 $h^{(i)}(X)$ 在 $X=0,1,2$ 处的取值： $(h^{(i)}(0), h^{(i)}(1), h^{(i)}(2))$ 。 
 
----
+#### Prover Cost Round 2
 
 下面分析上述流程的复杂度，对于第 $i$ 次
 
@@ -202,13 +240,10 @@ def uni_eval_from_evals(cls, evals, z, D):
     return (numerator / denominator)
 ```
 
-> 🤔 **Thinking**
+> [!note] 
 >
 > 这里的 $h^{(i)}(\alpha_i)$ 应该是 Verifier 自己进行计算，Prover 不需要进行计算。
 >
-> - [ ] 博客文章中是否要进行修改
->
-> - [ ] 复杂度这里先不进行计入。
 
 3. Prover 计算 $f^{(i)}(X_0, X_1, \ldots, X_{i - 1})$ 的 Evaluations 为 $\mathbf{a}^{(i)} = \mathsf{fold}^{*}_{\alpha_i}(\mathbf{a}^{(i + 1)})$
 
@@ -230,6 +265,9 @@ $$
 等式右边同样是一个关于 $X$ 次数为 2 的 Univariate Polynomial，因此 Prover 可以根据 $\mathbf{a}^{(i)}$ 计算出 $h^{(i)}(X)$ 在 $X=0,1,2$ 处的取值： $(h^{(i)}(0), h^{(i)}(1), h^{(i)}(2))$ 。 
 
 ```python
+eq_low = eq[:half]
+eq_high = eq[half:]
+
 eq = [(1 - alpha) * eq_low[i] + alpha * eq_high[i] for i in range(half)]
 
 h_eval_at_0 = sum([f_low[j] * eq_low[j] for j in range(half)])
@@ -238,36 +276,35 @@ h_eval_at_2 = sum([ (2 * f_high[j] - f_low[j]) * (2 * eq_high[j] - eq_low[j]) fo
 h_poly_vec.append([h_eval_at_0, h_eval_at_1, h_eval_at_2])
 ```
 
-- 计算 `eq` 复杂度与前面计算 `f` 一样，复杂度为 $2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}}$ 
+- 计算 `eq = [(1 - alpha) * eq_low[i] + alpha * eq_high[i] for i in range(half)]` 的复杂度与前面计算 `f` 一样，复杂度为 $2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}}$ 
 - 计算 $(h^{(i)}(0), h^{(i)}(1), h^{(i)}(2))$ 复杂度的分析与前面分析 $h_d(X)$ 一样，这里直接套用结果，复杂度为
 
-
-
 $$
-5 \cdot 2^{i - 1}  ~ \mathbb{F}_{\mathsf{mul}}
+(2 \cdot 2^{i} + 3) ~ \mathbb{F}_{\mathsf{mul}}
 $$
 因此这一步的复杂度为
 $$
-2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}} + 5 \cdot 2^{i - 1}  ~ \mathbb{F}_{\mathsf{mul}} =9 \cdot 2^{i - 1}  ~ \mathbb{F}_{\mathsf{mul}}
+2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}} + (4 \cdot 2^{i - 1} + 3)  ~ \mathbb{F}_{\mathsf{mul}} =(4 \cdot 2^{i} + 3) ~ \mathbb{F}_{\mathsf{mul}}
 $$
 将前面所有步骤的复杂度相加为
 $$
-\frac{5n_i}{2} ~ \mathbb{F}_{\mathsf{mul}} + n_i~\mathbb{F}_{\mathsf{inv}} + 2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}} + 9 \cdot 2^{i - 1}  ~ \mathbb{F}_{\mathsf{mul}} = (\frac{5n_i}{2} + 13 \cdot 2^{i - 1}) ~ \mathbb{F}_{\mathsf{mul}} +  n_i~\mathbb{F}_{\mathsf{inv}}
+\frac{5n_i}{2} ~ \mathbb{F}_{\mathsf{mul}} + n_i~\mathbb{F}_{\mathsf{inv}} + 2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}} + (4 \cdot 2^i + 3)  ~ \mathbb{F}_{\mathsf{mul}} = (\frac{5n_i}{2} + 6 \cdot 2^{i} + 3) ~ \mathbb{F}_{\mathsf{mul}} +  n_i~\mathbb{F}_{\mathsf{inv}}
 $$
 代入 $n_i = 2^i \cdot \mathcal{R}$ ，复杂度为
 $$
-(\frac{5\cdot 2^i \cdot \mathcal{R}}{2} + 13 \cdot 2^{i - 1}) ~ \mathbb{F}_{\mathsf{mul}} + (2^i \cdot \mathcal{R})~\mathbb{F}_{\mathsf{inv}} = (5\cdot 2^{i - 1} \cdot \mathcal{R} + 13 \cdot 2^{i - 1}) ~ \mathbb{F}_{\mathsf{mul}} + (2^i \cdot \mathcal{R})~\mathbb{F}_{\mathsf{inv}}
+(\frac{5\cdot 2^i \cdot \mathcal{R}}{2} + 6 \cdot 2^{i} + 3) ~ \mathbb{F}_{\mathsf{mul}} + (2^i \cdot \mathcal{R})~\mathbb{F}_{\mathsf{inv}} = ((\frac{5}{2} \mathcal{R} + 6) \cdot 2^i + 3) ~ \mathbb{F}_{\mathsf{mul}} + (2^i \cdot \mathcal{R})~\mathbb{F}_{\mathsf{inv}}
 $$
 
 将所有 $i = d - 1, \ldots, 1$ 的复杂度相加，为
 
 $$
-\begin{aligned}
-    & \sum_{i = 1}^{d - 1} (5\cdot 2^{i - 1} \cdot \mathcal{R} + 13 \cdot 2^{i - 1}) ~ \mathbb{F}_{\mathsf{mul}} + (2^i \cdot \mathcal{R})~\mathbb{F}_{\mathsf{inv}} = \sum_{i = 1}^{d - 1} (5 \cdot \mathcal{R} + 13) \cdot 2^{i - 1} ~ \mathbb{F}_{\mathsf{mul}} + (2^i \cdot \mathcal{R})~\mathbb{F}_{\mathsf{inv}} \\
-    & = (5 \cdot \mathcal{R} + 13) \cdot (2^0 + \ldots + 2^{d - 2})  ~ \mathbb{F}_{\mathsf{mul}} +  \mathcal{R} \cdot (2^1 + \ldots + 2^{d - 1}) ~\mathbb{F}_{\mathsf{inv}} \\
-    & = (5 \cdot \mathcal{R} + 13) \cdot (2^{d - 1} - 1)  ~ \mathbb{F}_{\mathsf{mul}} +  \mathcal{R} \cdot (2^d - 2) ~\mathbb{F}_{\mathsf{inv}}
-\end{aligned}
+\begin{align}
+ & \sum_{i = 1}^{d - 1}((\frac{5}{2} \mathcal{R} + 6) \cdot 2^i + 3) ~ \mathbb{F}_{\mathsf{mul}} + (2^i \cdot \mathcal{R})~\mathbb{F}_{\mathsf{inv}} \\
+ = & ((\frac{5}{2} \mathcal{R} + 6) (N - 2) + 3(d - 1)) ~ \mathbb{F}_{\mathsf{mul}} +  \mathcal{R}(N - 2)~\mathbb{F}_{\mathsf{inv}} \\
+=  & ((\frac{5}{2} \mathcal{R} + 6) N + 3d - 5 \mathcal{R} - 15) ~ \mathbb{F}_{\mathsf{mul}} +  (\mathcal{R}N - 2 \mathcal{R})~\mathbb{F}_{\mathsf{inv}}
+\end{align}
 $$
+
 补充增加关于 Merkle Tree 的计算，对于 $i = d - 1, \ldots, 1$ ， Prover 发送折叠后的向量编码： $\pi_i = \mathsf{fold}^*_{\alpha_i}(\pi_{i + 1})$ ，实际实现中，会发送对应的 Merkle Tree 承诺
 $$
 \mathsf{cm}(\pi_i) = \mathsf{cm}(\mathsf{fold}^*_{\alpha_i}(\pi_{i + 1})) = \mathsf{MT.commit}(\mathsf{fold}^*_{\alpha_i}(\pi_{i + 1}))
@@ -285,10 +322,11 @@ $$
 2. Prover 继续进行 Basefold-IOPP 协议：
    - Prover 发送折叠后的向量编码 $\pi_0 = \mathsf{fold}^*_{\alpha_0}(\pi_1)$ ，由于这一步最后 Verifier 会检查 $\pi_0$ 是否是合法的编码，因此这里会将所有的值发送给 Verifier，而不是其 Merkle 承诺。
    
+#### Prover Cost Round 3
 
 复杂度与前面分析 $\pi_i$ 是一致的，复杂度为
 $$
-\frac{5n_0}{2} ~ \mathbb{F}_{\mathsf{mul}} + n_0~\mathbb{F}_{\mathsf{inv}} = \frac{5 \cdot \mathcal{R}}{2} ~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} ~ \mathbb{F}_{\mathsf{inv}}
+\frac{5n_0}{2} ~ \mathbb{F}_{\mathsf{mul}} + n_0~\mathbb{F}_{\mathsf{inv}} = \frac{5 }{2}  \mathcal{R}~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} ~ \mathbb{F}_{\mathsf{inv}}
 $$
 
 ### Round 4
@@ -306,7 +344,9 @@ $$
     \{\pi_{i + 1}[\mu], \pi_{\pi_{i + 1}}(\mu)\} \leftarrow \mathsf{MT.open}(\pi_{i + 1}, \mu)
    $$
    - 如果 $i >0$ 并且 $\mu > n_{i - 1}$ ，Prover 计算新的 $\mu$ ，$\mu \leftarrow \mu - n_{i - 1}$
----
+
+#### Prover Cost Round 4
+
 由于这一轮 Prover 发送的都是之前已经计算过的值，因此没有额外的计算消耗。
 
 ### Prover Cost
@@ -315,18 +355,24 @@ $$
 
 $$
 \begin{aligned}
-    & (7 \cdot 2^{d - 1} - 1)  ~ \mathbb{F}_{\mathsf{mul}} + (5 \cdot \mathcal{R} + 13) \cdot (2^{d - 1} - 1)  ~ \mathbb{F}_{\mathsf{mul}} +  \mathcal{R} \cdot (2^d - 2) ~\mathbb{F}_{\mathsf{inv}} \\
-    & + \frac{5 \cdot \mathcal{R}}{2} ~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} ~ \mathbb{F}_{\mathsf{inv}} \\
-    = & \left((20 + 5 \mathcal{R}) \cdot 2^{d - 1} - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot 2^d - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} \\
-	= & \left((\frac{5}{2} \mathcal{R} + 10) \cdot N - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}}
+& (3N + 2)  ~ \mathbb{F}_{\mathsf{mul}} \\
+& + ((\frac{5}{2} \mathcal{R} + 6) N + 3d - 5 \mathcal{R} - 15) ~ \mathbb{F}_{\mathsf{mul}} +  (\mathcal{R}N - 2 \mathcal{R})~\mathbb{F}_{\mathsf{inv}} \\
+& + \frac{5 }{2}  \mathcal{R}~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} ~ \mathbb{F}_{\mathsf{inv}}\\
+= & \left((\frac{5}{2} \mathcal{R} + 9) \cdot N + 3d - \frac{5}{2} \mathcal{R} - 13 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
 加上关于 Merkle Tree 进行承诺的复杂度，为
 
 $$
 \begin{aligned}
-\left((\frac{5}{2} \mathcal{R} + 10) \cdot N - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
+\left((\frac{5}{2} \mathcal{R} + 9) \cdot N + 3d - \frac{5}{2} \mathcal{R} - 13 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
 \end{aligned}
+$$
+
+若加上 Prover 计算编码 $\pi_d$ 的算法复杂度，则总复杂度为
+
+$$
+\left(\frac{\mathcal{R}}{2} \cdot dN + (\frac{5}{2} \mathcal{R} + 9) \cdot N + 3d - \frac{5}{2} \mathcal{R} - 13 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
 $$
 
 ## Proof
@@ -343,7 +389,7 @@ $$
 
 在上面的表示中，$\mu^{(d)}, \ldots, \mu^{(1)}$ 表示的是在 IOPP.query 阶段的随机指标，其更新计算过程如 Prover Round 4 中的描述。$\{ \cdot \}^l$ 表示重复 $l$ 轮，每次其中的证明可能不同。
 
----
+#### Proof size
 
 - $\mathsf{cm}(\pi_{i})$ 这种表示的是 Merkle Tree 承诺，实际是 Merkle Tree 的根节点，为一个哈希值，用 $H$ 表示。
 - $\pi_{\pi_{i}}(\mu^{(i)})$ 表示的是 Merkle Tree 的路径，这棵树的高度是 $\log n_i$ ，因此 Merkle Path 中会发送 $\log n_i$ 个哈希值，记为 $\log n_i ~ H$ 。
@@ -355,15 +401,12 @@ $$
     & \quad 3 ~ \mathbb{F} + d ~ H + (3 \cdot (d - 1))~ \mathbb{F} + n_0 ~ \mathbb{F} + l \cdot (2d ~ \mathbb{F} + (\log n_d + \ldots + \log n_1) ~ H) \\
     & = (3d + \mathcal{R} + 2dl) ~ \mathbb{F} +  d ~ H + l (d + \log \mathcal{R} + \ldots + 1 + \log \mathcal{R}) ~ H \\
     & = (3d + \mathcal{R} + 2dl) ~ \mathbb{F} + \left(d + l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right) \right) ~ H \\
-	& = ((2l + 3)d + \mathcal{R}) ~ \mathbb{F} + \left( \frac{l}{2} \cdot d^2 + \left(\frac{1}{2} \cdot l + \log \mathcal{R} \cdot l + 1\right) \cdot d \right) ~ H 
+	& = ((2l + 3)d + \mathcal{R}) ~ \mathbb{F} + \left( \frac{l}{2} \cdot N + \left(\log \mathcal{R} \cdot l +\frac{1}{2} \cdot l + 1\right) \cdot d \right) ~ H 
 \end{aligned}
 $$
 
-> 🤔
->
-> - [x] 代码中发送了每次的编码 $\pi_i$ ，实际上并不需要。代码中发送了每次求得的编码，$\pi_0, \pi_1, \ldots, \pi_d$ ，实际只用发送要进行 IOPP.query 处对应的值，以及这些编码的承诺。
-
-
+> [!note] 
+>代码中发送了每次的编码 $\pi_i$ ，实际上并不需要。代码中发送了每次求得的编码，$\pi_0, \pi_1, \ldots, \pi_d$ ，实际只用发送要进行 IOPP.query 处对应的值，以及这些编码的承诺。
 
 ## Verification
 
@@ -390,7 +433,7 @@ $$
 \pi_0 \overset{?}{=} \mathsf{enc}_0\left(\frac{h^{(1)}(\alpha_0)}{\tilde{eq}((\alpha_0,\ldots,\alpha_{d-1}), \mathbf{u})}\right)
 $$
 
----
+#### Verifier Cost Analysis
 
 下面分析 verification 阶段的算法复杂度。
 
@@ -484,7 +527,7 @@ $$
 
 该结论具体来自 ph23-analysis 分析，在验证过程的第一步，分析方法类似。
 
-因此这里计算 $h^{(i+1)}(\alpha_i)$ 的复杂度为
+在计算 $h^{(i+1)}(\alpha_i)$  时，已知的有 $h^{(i+1)}(0),h^{(i+1)}(1),h^{(i+1)}(2)$ ， 在上面的计算式中代入 $n = 3$ ，因此这里计算 $h^{(i+1)}(\alpha_i)$ 的复杂度为
 
 $$
 9 ~ \mathbb{F}_{\mathsf{mul}} + 5 ~ \mathbb{F}_{\mathsf{inv}}
@@ -502,34 +545,50 @@ $$
 \pi_0 \overset{?}{=} \mathsf{enc}_0\left(\frac{h^{(1)}(\alpha_0)}{\tilde{eq}((\alpha_0,\ldots,\alpha_{d-1}), \mathbf{u})}\right)
 $$
 
-- 计算 $\tilde{eq}((\alpha_0,\ldots,\alpha_{d-1}), \mathbf{u})$ ，其计算方式与 Prover 计算一致
+- 计算 $\tilde{eq}((\alpha_0,\ldots,\alpha_{d-1}), \mathbf{u})$ ，
 
-```python
-eq_evals = MLEPolynomial.eqs_over_hypercube(us)
-for i in range(k):
-  alpha = challenge_vec[i]
-  eq_low = eq_evals[:half]
-  eq_high = eq_evals[half:]
-  if debug: print("eq_low={}, eq_high={}".format(eq_low, eq_high))
-  eq_evals = [(1-alpha) * eq_low[i] + alpha * eq_high[i] for i in range(half)]
-
-# check f(alpha_vec)
-f_eval_at_random = sumcheck_sum/eq_evals[0]
-```
-
-`eq_evals = MLEPolynomial.eqs_over_hypercube(us)` 复杂度为 $(2^d - 1) ~ \mathbb{F}_{\mathsf{mul}}$ 。
-
-计算 `eq_evals` 复杂度为 $2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}}$ 。
-
-因此这里总复杂度为
 $$
-(2^d - 1) ~ \mathbb{F}_{\mathsf{mul}} + \sum_{i = 0}^{d - 1}2^{i + 1} ~ \mathbb{F}_{\mathsf{mul}} = (3 \cdot 2^d - 3) ~ \mathbb{F}_{\mathsf{mul}}
+\tilde{eq}((\alpha_0,\ldots,\alpha_{d-1}), \mathbf{u}) = \prod_{i = 0}^{d- 1} \big( (1 - \alpha_i)(1 - u_i) + \alpha_i u_i\big)
 $$
+每一项 $(1 - \alpha_i)(1 - u_i) + \alpha_i u_i$ 计算量是 $2 ~\mathbb{F}_{\mathsf{mul}}$ ，计算这 $d$  项的复杂度为 $2d ~\mathbb{F}_{\mathsf{mul}}$  ，最后有 $d$ 个数相乘，总复杂度为 
+
+$$
+2d ~\mathbb{F}_{\mathsf{mul}} + (d - 1) ~\mathbb{F}_{\mathsf{mul}} = (3d - 1) ~\mathbb{F}_{\mathsf{mul}} 
+$$
+
+> [!bug] 
+> 代码中 Verifier 计算 $\tilde{eq}((\alpha_0,\ldots,\alpha_{d-1}), \mathbf{u})$ 的方式可以进行更改。
+> ```python
+> eq_evals = MLEPolynomial.eqs_over_hypercube(us)
+> for i in range(k):
+ >  alpha = challenge_vec[i]
+ >  eq_low = eq_evals[:half]
+ >  eq_high = eq_evals[half:]
+ >  if debug: print("eq_low={}, eq_high={}".format(eq_low, eq_high))
+ >  eq_evals = [(1-alpha) * eq_low[i] + alpha * eq_high[i] for i in range(half)]
+ >
+> # check f(alpha_vec)
+> f_eval_at_random = sumcheck_sum/eq_evals[0]
+> ```
+> 这种计算方式的复杂度为 $O(N)$
+> 
+> 可以改为使用连乘的计算方式，复杂度为 $O(d)$ 。
+> 
+> ```python
+> # use another way to compute eq_evals[0]
+> challenge_vec_test = challenge_vec[::-1]
+> print(f"challenge_vec_test = {challenge_vec_test}")
+> 
+> eq_evals_test = 1
+> for i in range(k):
+> 	eq_evals_test *= (1 - challenge_vec_test[i]) * (1 - us[i]) + challenge_vec_test[i] * us[i]
+> print(f"eq_evals_test = {eq_evals_test}")
+> ```
 
 - Verifier 自己计算 $h^{(1)}(\alpha_0)$
 
 复杂度分析与上面类似，为
-
+ 
 $$
 9 ~ \mathbb{F}_{\mathsf{mul}} + 5 ~ \mathbb{F}_{\mathsf{inv}}
 $$
@@ -560,11 +619,11 @@ $$
 \begin{aligned}
     & l \cdot\sum_{i = 1}^{d}\mathsf{MTV}(i + \log \mathcal{R}) + 5dl ~ \mathbb{F}_{\mathsf{mul}} + 2dl~\mathbb{F}_{\mathsf{inv}} \\ 
     & \quad + 9(d - 1) ~ \mathbb{F}_{\mathsf{mul}} + 5(d - 1) ~ \mathbb{F}_{\mathsf{inv}} \\
-    & \quad + (3 \cdot 2^d - 3) ~ \mathbb{F}_{\mathsf{mul}} + 9 ~ \mathbb{F}_{\mathsf{mul}} + 5 ~ \mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}} + \mathbb{F}_{\mathsf{inv}} \\
-    = & l \cdot\sum_{i = 1}^{d}\mathsf{MTV}(i + \log \mathcal{R}) + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
-    = & l \cdot\sum_{i = 1}^{d}(i + \log \mathcal{R}) ~ H + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
-    = &  l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right)  ~ H + (3 \cdot 2^d + 5dl + 9d - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
-	= & \left( \frac{l}{2} \cdot d^2 + (l\log \mathcal{R} + \frac{l}{2})d \right)  ~ H + (3 N+ (5l + 9)d - 2) ~ \mathbb{F}_{\mathsf{mul}} + ((2l + 5)d + 1) ~ \mathbb{F}_{\mathsf{inv}}
+    & \quad + (3 d - 1) ~ \mathbb{F}_{\mathsf{mul}} + 9 ~ \mathbb{F}_{\mathsf{mul}} + 5 ~ \mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}} + \mathbb{F}_{\mathsf{inv}} \\
+    = & l \cdot\sum_{i = 1}^{d}\mathsf{MTV}(i + \log \mathcal{R}) + (5dl + 12d) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
+    = & l \cdot\sum_{i = 1}^{d}(i + \log \mathcal{R}) ~ H + (5dl + 12d) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
+    = &  l  \cdot \left(\frac{d (d + 1)}{2} + d \cdot \log \mathcal{R} \right)  ~ H + (5dl + 12d) ~ \mathbb{F}_{\mathsf{mul}} + (2dl + 5d + 1) ~ \mathbb{F}_{\mathsf{inv}} \\
+	= & \left( \frac{l}{2} \cdot N + (l\log \mathcal{R} + \frac{l}{2})d \right)  ~ H + (5l + 12)d ~ \mathbb{F}_{\mathsf{mul}} + ((2l + 5)d + 1) ~ \mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
 
@@ -573,18 +632,30 @@ $$
 Prover's cost:
 
 $$
-\left((\frac{5}{2} \mathcal{R} + 10) \cdot N - \frac{5}{2} \mathcal{R} - 14 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
+\begin{aligned}
+\left((\frac{5}{2} \mathcal{R} + 9) \cdot N + 3d - \frac{5}{2} \mathcal{R} - 13 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
+\end{aligned}
+$$
+
+若加上 Prover 计算编码 $\pi_d$ 的算法复杂度，则总复杂度为
+
+$$
+\left(\frac{\mathcal{R}}{2} \cdot dN + (\frac{5}{2} \mathcal{R} + 9) \cdot N + 3d - \frac{5}{2} \mathcal{R} - 13 \right) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{d - 1} \mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
 $$
 
 Proof size:
 
 $$
-((2l + 3)d + \mathcal{R}) ~ \mathbb{F} + \left( \frac{l}{2} \cdot d^2 + \left(\frac{1}{2} \cdot l + \log \mathcal{R} \cdot l + 1\right) \cdot d \right) ~ H 
+\begin{align}
+((2l + 3)d + \mathcal{R}) ~ \mathbb{F} + \left( \frac{l}{2} \cdot N + \left(\log \mathcal{R} \cdot l +\frac{1}{2} \cdot l + 1\right) \cdot d \right) ~ H 
+\end{align}
 $$
 
 Verifier's cost:
 
 $$
-\left( \frac{l}{2} \cdot d^2 + (l\log \mathcal{R} + \frac{l}{2})d \right)  ~ H + (3 N+ (5l + 9)d - 2) ~ \mathbb{F}_{\mathsf{mul}} + ((2l + 5)d + 1) ~ \mathbb{F}_{\mathsf{inv}}
+\begin{align}
+\left( \frac{l}{2} \cdot N + (l\log \mathcal{R} + \frac{l}{2})d \right)  ~ H + (5l + 12)d ~ \mathbb{F}_{\mathsf{mul}} + ((2l + 5)d + 1) ~ \mathbb{F}_{\mathsf{inv}}
+\end{align}
 $$
 

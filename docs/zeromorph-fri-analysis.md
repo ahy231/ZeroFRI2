@@ -43,38 +43,36 @@ $$
 ##### Prover Cost Round 1
 
 -  直接用 [Zeromorph](https://eprint.iacr.org/2023/917) 论文 Appendix A.2 的算法能计算出 $q_k$ 在 Hypercube 上的值，即可以得到 $\hat{q}_k$ 的系数，根据论文的结论，整个算法复杂度为 $(2^{n+1} - 3) ~ \mathbb{F}_{\mathsf{add}}$ 以及 $(2^{n} - 2) ~ \mathbb{F}_{\mathsf{mul}}$ 。这里不计入加法的复杂度，因此计算出 $\hat{q}_k=[[\tilde{q}_k]]_k, \quad 0 \leq k < n$ 的复杂度为 $(N - 2) ~ \mathbb{F}_{\mathsf{mul}}$ 。
-- 计算 $\{[\hat{q}_k(x)|_{x \in D^{(k)}}]\}_{k = 0}^{n - 1}$ ，由于已经计算得到 $\hat{q}_k(X)$ 的系数，现在直接代入 $D^{(k)}$ 进行求值计算。在一个点进行求值，使用 Horner 方法进行计算。
-
-```python
-@staticmethod
-def evaluate_at_point(poly, point):
-	"""Evaluate a polynomial at a single point using Horner's method."""
-	result = 0
-	for coeff in reversed(poly):
-		result = result * point + coeff
-	return result
-```
-
-例如求一个多项式在 $x$ 点处的值 $f(x) = a_0 + a_1 x + a_2 x^2 + a_3 x^3$ ，该算法的计算过程为
+- 计算 $\{[\hat{q}_k(x)|_{x \in D^{(k)}}]\}_{k = 0}^{n - 1}$ ，由于已经计算得到 $\hat{q}_k(X)$ 的系数，现在直接代入 $D^{(k)}$ 进行求值计算。在一个点进行求值，使用 FFT 方法进行计算。
+	- 由于 $|D^{(k)}| = 2^k \cdot \mathcal{R}$ ，因此计算 $[\hat{q}_k(x)|_{x \in D^{(k)}}]$ 的复杂度为 $2^k\mathcal{R} \cdot \log(2^k\mathcal{R}) ~ \mathbb{F}_{\mathsf{mul}} =2^k \mathcal{R}(k + \log \mathcal{R}) ~ \mathbb{F}_{\mathsf{mul}}$ 。计算 $\{[\hat{q}_k(x)|_{x \in D^{(k)}}]\}_{k = 0}^{n - 1}$  的复杂度为
 
 $$
-\begin{aligned}
-f(x) & = (a_3 \cdot x^2 + a_2 \cdot x + a_1) \cdot x + a_0 \\
-& = ((a_3 \cdot x + a_2)\cdot x + a_1) \cdot x + a_0 \\
-& = (((0 \cdot x + a_3) \cdot x + a_2)\cdot x + a_1) \cdot x + a_0
-\end{aligned}
-$$
-先计算最里面括号内的，$(0 \cdot x + a_3)$ ，计算后的结果 `result` 再乘以 $x$ ，再加上对应的系数 $a_2$ ，以此类推得到计算结果。
-
-对于一个有 $n$ 个系数的多项式，计算在一个点的值的复杂度为 $n ~ \mathbb{F}_{\mathsf{mul}}$ 。
-
-$\hat{q}_k(X)$ 的系数有 $2^k$ 个，因此计算在一个点的值复杂度为 $2^k ~ \mathbb{F}_{\mathsf{mul}}$ ，而 $|D^{(k)}| = 2^k \cdot \mathcal{R}$ ，因此计算 $[\hat{q}_k(x)|_{x \in D^{(k)}}]$ 的复杂度为 $2^k \cdot 2^k \cdot \mathcal{R} ~ \mathbb{F}_{\mathsf{mul}}$ 。计算 $\{[\hat{q}_k(x)|_{x \in D^{(k)}}]\}_{k = 0}^{n - 1}$  的复杂度为
-
-$$
-\sum_{k = 0}^{n - 1} 2^k \cdot 2^k \cdot \mathcal{R} ~ \mathbb{F}_{\mathsf{mul}} = (2N - 2) \cdot \mathcal{R} ~ \mathbb{F}_{\mathsf{mul}}
+\sum_{k = 0}^{n - 1} 2^k \mathcal{R}(k + \log \mathcal{R})  ~ \mathbb{F}_{\mathsf{mul}} 
 $$
 
-其中 $N = 2^n$ 。
+由于
+$$
+\sum_{k = 0}^{n - 1} 2^k = 2^0 + \ldots + 2^{n - 1} = \frac{2^0(1- 2^n)}{1- 2} = 2^n - 1
+$$
+
+$$
+\sum_{k = 0}^{n - 1} k \cdot 2^k = (n - 2) \cdot 2^n + 2
+$$
+
+
+因此
+
+$$
+\begin{align}
+ \sum_{k = 0}^{n - 1} 2^k \mathcal{R}(k + \log \mathcal{R})     & = \mathcal{R} \cdot\sum_{k = 0}^{n - 1} k \cdot 2^k  + \mathcal{R}\log \mathcal{R}  \cdot \sum_{k = 0}^{n - 1} 2^k  \\
+ &  = \mathcal{R} \cdot nN + (\mathcal{R} \log \mathcal{R} - 2 \mathcal{R}) N + 2\mathcal{R}  - \mathcal{R}\log \mathcal{R}
+\end{align}
+$$
+
+因此这一轮的复杂度为 $(\mathcal{R} \cdot nN + (\mathcal{R} \log \mathcal{R} - 2 \mathcal{R}) N + 2\mathcal{R}  - \mathcal{R}\log \mathcal{R}) ~\mathbb{F}_{\mathsf{mul}}$ 。
+
+> [!summary] 
+> 这一步有 $n$ 个多项式 $\hat{q}_k(X)$ 都需要在 $D^{(k)}$ 上求值，采用 FFT 的方法，复杂度为 $O(N \log N)$ 。
 
 - 计算承诺 $\mathsf{cm}(\hat{q}_{n - 1}, \hat{q}_{n - 2}, \ldots, \hat{q}_0) = \mathsf{MMCS.commit}(\hat{q}_{n - 1}, \hat{q}_{n - 2}, \ldots, \hat{q}_0)$ ，树的高度为 $2 \cdot \log (2^{n - 1} \cdot \mathcal{R})$ ，涉及到的 Hash 计算有 $(2^{n - 1} + \cdots + 2^0) \cdot \mathcal{R}$ 个，一次 Hash 操作的复杂度记为 $H$ 。涉及到的 Compress 操作为 $2^{n - 2} \cdot \mathcal{R} + \ldots + 2^{0} \cdot \mathcal{R} + 1$ ，记为 $(2^{n - 2} \cdot \mathcal{R} + \ldots + 2^{0} \cdot \mathcal{R} + 1) ~ C$ ，因此这一步的复杂度为
   
@@ -89,73 +87,100 @@ $$
 总结下这一轮的总复杂度为
 
 $$
-\begin{aligned}
-  & (N - 2) ~ \mathbb{F}_{\mathsf{mul}} + (2N - 2) \cdot \mathcal{R} ~ \mathbb{F}_{\mathsf{mul}} + (N - 1) \cdot \mathcal{R} ~ H  + ((N/2 - 1) \cdot \mathcal{R} + 1) ~ C \\
-  & = (2N \mathcal{R} + N - 2 \mathcal{R} - 2)  ~ \mathbb{F}_{\mathsf{mul}} + (N \mathcal{R} - \mathcal{R})  ~ H  + (\frac{N \mathcal{R}}{2} - \mathcal{R} + 1) ~ C \\
- & = (2N \mathcal{R} + N - 2 \mathcal{R} - 2)  ~ \mathbb{F}_{\mathsf{mul}} + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R})
-\end{aligned}
+\begin{align}
+ & (N - 2) ~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot nN + (\mathcal{R} \log \mathcal{R} - 2 \mathcal{R}) N + 2\mathcal{R}  - \mathcal{R}\log \mathcal{R}) ~\mathbb{F}_{\mathsf{mul}} \\
+ & + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R}) \\
+=  & (\mathcal{R}\cdot nN + (\mathcal{R} \log \mathcal{R} - 2 \mathcal{R} + 1) N + 2\mathcal{R}  - \mathcal{R}\log \mathcal{R}  - 2) ~\mathbb{F}_{\mathsf{mul}}  \\
+ & + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R}) 
+\end{align}
 $$
 
 #### Round 2
 
 1. Verifier 发送随机数 $\zeta \stackrel{\$}{\leftarrow} \mathbb{F} \setminus D$ 
 2. Prover 计算并发送 $\hat{f}(\zeta)$ 
-3. Prover 计算 
-
-$$
-q_{f_\zeta}(X) = \frac{\hat{f}(X) - \hat{f}(\zeta)}{X - \zeta}
-$$
-
-在 $D$ 上的值，即
-
-$$
-[q_{f_\zeta}(x)|_{x \in D}] = \big[\frac{\hat{f}(x) - \hat{f}(\zeta)}{ x - \zeta} \big|_{x \in D} \big]
-$$
-4. Prover 计算并发送 $\{\hat{q}_k(\zeta)\}_{k = 0}^{n - 1}$ 。
-5. Prover 计算
-
-$$
-q_{\hat{q}_k}(X) = \frac{\hat{q_k}(X) - \hat{q}_k(\zeta)}{X - \zeta}, \, 0 \le k < n
-$$
-
-在 $D^{(k)}$ 上的值，即
-
-$$
-[q_{\hat{q}_k}(x)|_{x \in D^{(k)}}] = \big[\frac{\hat{q}_k(x) - \hat{q}_k(\zeta)}{ x - \zeta} \big|_{x \in D^{(k)}} \big]
-$$
+3. Prover 计算并发送  $\{\hat{q}_k(\zeta)\}_{k = 0}^{n - 1}$ 。
 
 ##### Prover Cost Round 2
 
-- 计算 $\hat{f}(\zeta)$ ，Prover 有 $\hat{f}$ 的系数式，现在是求在一点的值，复杂度为 $N ~ \mathbb{F}_{\mathsf{mul}}$ 。
-- 计算 $[q_{f_\zeta}(x)|_{x \in D}]$ 。
-  - 先计算 $q_{f_\zeta}(X)$ 多项式，使用线性除法，分子中的多项式 $\deg(\hat{f}(X)) =2^n - 1 = N - 1$ ，因此线性除法复杂度为 $(N - 1) ~ \mathbb{F}_{\mathsf{mul}}$ 。
-  - 由于 $|D| = N \cdot \mathcal{R}$ ，$q_{f_\zeta}(x)$ 的系数有 $N - 1$ 个，使用 Horner 方法求值，计算 $[q_{f_\zeta}(x)|_{x \in D}]$ 复杂度为 $N\mathcal{R} \cdot (N - 1)~ \mathbb{F}_{\mathsf{mul}}$ 。
-  - 这一步的总复杂度为 $(N^2 \mathcal{R} - N \mathcal{R} + N - 1) ~ \mathbb{F}_{\mathsf{mul}}$ 。
+- 计算 $\hat{f}(\zeta)$ ，Prover 有 $\hat{f}$ 的系数式，现在是求在一点的值，用 Horner 方法来计算，复杂度为 $N ~ \mathbb{F}_{\mathsf{mul}}$ 。
+
+> [!note] 
+> 如果用重心插值来计算，复杂度为 $(2N + 1) ~ \mathbb{F}_{\mathsf{mul}} + (N + 1) ~ \mathbb{F}_{\mathsf{inv}}$ ，计算量会更大。
+
 - 计算 $\{\hat{q}_k(\zeta)\}_{k = 0}^{n - 1}$ ，复杂度为
 
   $$
     \sum_{k = 0}^{n - 1} 2^k ~ \mathbb{F}_{\mathsf{mul}} = (N - 1) ~ \mathbb{F}_{\mathsf{mul}}
   $$
 
-- 计算 $q_{\hat{q}_k}(X)$ ，使用线性除法，分子中的多项式 $\deg(\hat{q_k}(X)) =2^k - 1$ ，因此线性除法复杂度为 $(2^k - 1) ~ \mathbb{F}_{\mathsf{mul}}$ 。遍历所有的 $k$ ，复杂度为 $(N - n - 1) ~ \mathbb{F}_{\mathsf{mul}}$ 。
-- 计算 $[q_{\hat{q}_k}(x)|_{x \in D^{(k)}}]$ ，由于 $|D_k| = 2^k \cdot \mathcal{R}$ ，$q_{\hat{q_k}}(X)$ 的系数有 $2^k - 1$ 个，因此其复杂度为 $(2^k - 1) \cdot 2^k \cdot \mathcal{R} ~ \mathbb{F}_{\mathsf{mul}}$ 。对于 $k = 0, \ldots, n - 1$ ，计算所有的 $[q_{\hat{q}_k}(x)|_{x \in D^{(k)}}]$ 的复杂度为
+这一轮的总复杂度为
 
 $$
-\sum_{k = 0}^{n - 1} (2^k - 1) \cdot 2^k \cdot \mathcal{R} ~ \mathbb{F}_{\mathsf{mul}} = (\frac{1}{3}N^2 \cdot \mathcal{R} - N \cdot \mathcal{R}+ \frac{2}{3} \cdot \mathcal{R}) ~ \mathbb{F}_{\mathsf{mul}}
-$$
-
-整理汇总 Round 2 的计算复杂度为
-
-$$
-\begin{aligned}
-  & {\color{blue} N ~ \mathbb{F}_{\mathsf{mul}}} + {\color{red} (N^2 \mathcal{R} - N \mathcal{R} + N - 1) ~ \mathbb{F}_{\mathsf{mul}}} + {\color{blue}{(N - 1) ~ \mathbb{F}_{\mathsf{mul}}}} + \color{red}{(N - n - 1) ~ \mathbb{F}_{\mathsf{mul}}} \\
-  & + \color{blue}{(\frac{1}{3}N^2 \cdot \mathcal{R} - N \cdot \mathcal{R}+ \frac{2}{3} \cdot \mathcal{R}) ~ \mathbb{F}_{\mathsf{mul}}} \\
-  = & (\frac{4}{3} \mathcal{R} N^2 + (4 - 2\mathcal{R}) N - n + \frac{2}{3} \mathcal{R} - 3)  ~ \mathbb{F}_{\mathsf{mul}}
-\end{aligned}
+\begin{align}
+N ~ \mathbb{F}_{\mathsf{mul}} + (N - 1) ~ \mathbb{F}_{\mathsf{mul}} = (2N - 1) ~ \mathbb{F}_{\mathsf{mul}}
+\end{align}
 $$
 
 
 #### Round 3
+
+1. Verifier 发送随机数 $\lambda \stackrel{\$}{\leftarrow} \mathbb{F}$ 
+2. Prover 计算 
+
+$$
+q_{f_\zeta}(X) = \frac{\hat{f}(X) - \hat{f}(\zeta)}{X - \zeta} + \lambda \cdot X \cdot \frac{\hat{f}(X) - \hat{f}(\zeta)}{X - \zeta}
+$$
+在 $D$ 上的值，即
+
+$$
+[q_{f_\zeta}(x)|_{x \in D}] = \big[\frac{\hat{f}(x) - \hat{f}(\zeta)}{x - \zeta} + \lambda \cdot x \cdot \frac{\hat{f}(x) - \hat{f}(\zeta)}{x - \zeta}\big|_{x \in D} \big]
+$$
+
+3. 对于 $0 \le k < n$ ，Prover 计算
+
+$$
+q_{\hat{q}_k}(X) = \frac{\hat{q_k}(X) - \hat{q}_k(\zeta)}{X - \zeta} + \lambda \cdot X \cdot \frac{\hat{q_k}(X) - \hat{q}_k(\zeta)}{X - \zeta}
+$$
+
+在 $D^{(k)}$ 上的值。
+
+##### Prover Cost Round 3
+
+- 计算 $[q_{f_\zeta}(x)|_{x \in D}]$ 。
+	- 先通过 $f(X)$ 的系数式用 FFT 计算得到 $[f(x)|_{x \in D}]$ 。由于 $|D| = N \cdot \mathcal{R}$ ，因此复杂度为 $(\mathcal{R}N \cdot\log(\mathcal{R}N)) ~ \mathbb{F}_{\mathsf{mul}} = (\mathcal{R} \cdot nN + \mathcal{R}\log\mathcal{R} \cdot N) ~ \mathbb{F}_{\mathsf{mul}}$ 。
+	- 再计算 $[q_{f_\zeta}(x)|_{x \in D}]$ ，每一个值涉及 $\mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}} + 2 ~ \mathbb{F}_{\mathsf{mul}} = 3 ~ \mathbb{F}_{\mathsf{mul}} + \mathbb{F}_{\mathsf{inv}}$ ，总共 $3\mathcal{R} \cdot N ~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} \cdot N\mathbb{F}_{\mathsf{inv}}$ 。
+	- 因此整体计算复杂度为
+
+	$$
+	\begin{align}
+  & (\mathcal{R} \cdot nN + \mathcal{R}\log\mathcal{R} \cdot N) ~ \mathbb{F}_{\mathsf{mul}} + 3\mathcal{R} \cdot N ~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} \cdot N ~\mathbb{F}_{\mathsf{inv}} \\
+ = & (\mathcal{R} \cdot nN + (\mathcal{R}\log\mathcal{R} + 3 \mathcal{R}) \cdot N) ~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} \cdot N ~ \mathbb{F}_{\mathsf{inv}}
+\end{align}
+	$$
+
+> [!summary] 
+> 计算 $[f(x)|_{x \in D}]$ 复杂度为 $O(N \log N)$ 。
+  
+- 计算 $[q_{\hat{q}_k}(x)|_{x \in D^{(k)}}]$ 。Round 1 已经计算出 $[\hat{q}_k(x)|_{x \in D^{(k)}}]$ ，由于 $|D_k| = 2^k \cdot \mathcal{R}$ ，因此这一步的复杂度为
+
+	$$
+\begin{align}
+\sum_{k = 0}^{n-1} 2^k \cdot \mathcal{R} \cdot (3 ~ \mathbb{F}_{\mathsf{mul}} + \mathbb{F}_{\mathsf{inv}})  & = (3 \mathcal{R}~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} ~\mathbb{F}_{\mathsf{inv}}) \cdot \sum_{k = 0}^{n-1} 2^k = (3 \mathcal{R}~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} ~\mathbb{F}_{\mathsf{inv}}) \cdot (N-1) \\
+ & = (3 \mathcal{R} \cdot N - 3 \mathcal{R} )~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~\mathbb{F}_{\mathsf{inv}}
+\end{align}
+	$$
+
+整理汇总 Round 3 的计算复杂度为
+
+$$
+\begin{aligned}
+  & (\mathcal{R} \cdot nN + (\mathcal{R}\log\mathcal{R} + 3 \mathcal{R}) \cdot N) ~ \mathbb{F}_{\mathsf{mul}} + \mathcal{R} \cdot N ~ \mathbb{F}_{\mathsf{inv}} + (3 \mathcal{R} \cdot N - 3 \mathcal{R} )~ \mathbb{F}_{\mathsf{mul}} + (\mathcal{R} \cdot N - \mathcal{R}) ~\mathbb{F}_{\mathsf{inv}} \\
+  = & (\mathcal{R} \cdot nN + (\mathcal{R}\log\mathcal{R} + 6 \mathcal{R}) \cdot N - 3 \mathcal{R} ) ~ \mathbb{F}_{\mathsf{mul}} + (2\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}}
+\end{aligned}
+$$
+
+#### Round 4
 
 Prover 与 Verifier 进行 FRI 协议的 low degree test 交互，证明 $q_{f_\zeta}(X)$ 的次数小于 $2^{n}$ ，
 
@@ -163,13 +188,15 @@ $$
 \pi_{q_{f_\zeta}} \leftarrow \mathsf{FRI.LDT}(q_{f_\zeta}(X), 2^n)
 $$
 
+这里包含 $n$ 轮的交互，直到最后将原来的多项式折叠为常数多项式。下面用 $i$ 表示第 $i$ 轮，具体交互过程如下：
+
 - 记 $q_{f_\zeta}^{(0)}(x)|_{x \in D} := q_{f_\zeta}(x)|_{x \in D}$
 - 对于 $i = 1,\ldots, n$ ，
   - Verifier 发送随机数 $\alpha^{(i)}$
-  - 对于任意的 $y \in D_i$ ，在 $D_{i - 1}$ 中找到 $x$ 满足 $y^2 = x$，Prover 计算
+  - 对于任意的 $y \in D_i$ ，在 $D_{i - 1}$ 中找到 $x$ 满足 $x^2 = y$，Prover 计算
 
   $$
-    q_{f_\zeta}^{(i)}(y) = \frac{q_{f_\zeta}^{(i - 1)}(x) + q_{f_\zeta}^{(i - 1)}(-x)}{2} + \alpha^{(i)} \cdot \frac{q_{f_\zeta}^{(i - 1)}(x) + q_{f_\zeta}^{(i - 1)}(-x)}{2x}
+    q_{f_\zeta}^{(i)}(y) = \frac{q_{f_\zeta}^{(i - 1)}(x) + q_{f_\zeta}^{(i - 1)}(-x)}{2} + \alpha^{(i)} \cdot \frac{q_{f_\zeta}^{(i - 1)}(x) - q_{f_\zeta}^{(i - 1)}(-x)}{2x}
   $$
 
   
@@ -185,7 +212,7 @@ $$
 >
 > 如果折叠次数 $r < n$ ，那么最后不会折叠到常数多项式，因此 Prover 在第 $r$ 轮时会发送一个 Merkle Tree 承诺，而不是发送一个值。
 
-##### Prover Cost Round 3
+##### Prover Cost Round 4
 
 - 对于 $i = 1，\ldots, n$
   - Prover 计算
@@ -269,15 +296,17 @@ $$
 
 $$
 \begin{aligned}
-  & (\mathcal{R}N - \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} +  (3\mathcal{R}N + n - 3\mathcal{R}) ~\mathbb{F}_{\mathsf{mul}}+ \sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) \\
+  &    (3\mathcal{R}N + n - 3\mathcal{R}) ~\mathbb{F}_{\mathsf{mul}}+ (\mathcal{R}N - \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} +\sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) \\
 \end{aligned}
 $$
 
 一般地，要证明一个多项式的次数小于 $2^n$ ，在 FRI low degree test 阶段的复杂度如上所示。
 
-#### Round 4
+#### Round 5
 
-这一轮是接着 Prover 与 Verifier 进行 FRI 协议的 low degree test 交互的查询阶段，Verifier 重复查询 $l$ 次：
+这一轮是接着 Prover 与 Verifier 进行 FRI 协议的 low degree test 交互的查询阶段，Verifier 重复查询 $l$ 次，每一次 Verifier 都会从 $D_0$ 中选取一个随机数，让 Prover 发送在第 $i$ 轮折叠的值及对应的 Merkle Path，用来让 Verifier 验证每一轮折叠的正确性。
+
+重复 $l$ 次：
 - Verifier 从 $D_0$ 中随机选取一个数 $s^{(0)} \stackrel{\$}{\leftarrow} D_0$ 
 - Prover 发送 $\hat{f}(s^{(0)}), \hat{f}(- s^{(0)})$ 的值，并附上 Merkle Path。
   
@@ -303,33 +332,34 @@ $$
 
 > 如果折叠次数 $r < n$ ，那么最后一步就要发送 $q_{f_\zeta}^{(r)}(s^{(r)})$ 的值，并附上 Merkle Path。
 
-##### Prover Cost Round 4
+
+##### Prover Cost Round 5
 
 在查询阶段，Prover 的计算复杂度主要来自计算 $s^{(i + 1)} = (s^{(i)})^2$ ，但这些数都是来自 $D_i$ 中的元素，不需要再额外计算，可以通过索引值得到。
 
-#### Round 5
+#### Round 6
 
 Prover 与 Verifier 进行 FRI 协议的 low degree test 交互，这里使用 rolling batch 技巧进行优化，对于 $k = 0, \ldots, n - 1$ ， 一次证明所有 $q_{\hat{q}_k}(X)$ 的次数小于 $2^k$ ，记为
 
 $$
 \pi_{q_{\hat{q}_{n - 1}}, \ldots, q_{\hat{q}_{0}}} \leftarrow \mathsf{OPFRI.LDT}(q_{\hat{q}_{n - 1}}, \ldots, q_{\hat{q}_{0}}, 2^{n - 1})
 $$
-
-具体过程如下：
+这里包含 $n$ 轮的交互，直到最后折叠为常数多项式。下面用 $i$ 表示第 $i$ 轮，具体交互过程如下：
 
 1. 初始化 $i = n - 1$ ，对于 $x \in D^{(n - 1)}$ ，初始化
 
 $$
 \mathsf{fold}^{(i)}(x) = q_{\hat{q}_{n - 1}}(x)
 $$
+
 2. 当 $i = n - 2, \ldots, 0$ 时：
 
 - Verifier 发送随机数 $\beta^{(i)}$
 
-- 对于 $y \in D^{(i)}$ ，在 $D^{(i + 1)}$ 中找到 $x$ 满足 $y = x^2$ ，Prover 计算
+- 对于 $y \in D^{(i)}$ ，在 $D^{(i + 1)}$ 中找到 $x$ 满足 $x^2 = y$ ，Prover 计算
 
 $$
-\mathsf{fold}^{(i)}(y) = \frac{\mathsf{fold}^{(i + 1)}(x) + \mathsf{fold}^{(i + 1)}(-x)}{2} + \beta^{(i)} \cdot \frac{\mathsf{fold}^{(i + 1)}(x) + \mathsf{fold}^{(i + 1)}(-x)}{2x}
+\mathsf{fold}^{(i)}(y) = \frac{\mathsf{fold}^{(i + 1)}(x) + \mathsf{fold}^{(i + 1)}(-x)}{2} + \beta^{(i)} \cdot \frac{\mathsf{fold}^{(i + 1)}(x) - \mathsf{fold}^{(i + 1)}(-x)}{2x}
 $$
 
 -  对于 $x \in D^{(i)}$ ，Prover 更新 $\mathsf{fold}^{(i)}(x)$
@@ -346,7 +376,7 @@ $$
     $$
 - 当 $i = 0$ 时，由于最后折叠到常数多项式，Prover 选取 $D^{(0)}$ 中的任意一个点 $y_0 \in D^{(0)}$，发送折叠到最后的值 $\mathsf{fold}^{(0)}(y_0)$ 。
 
-##### Prover Cost Round 5
+##### Prover Cost Round 6
 
 这里虽然折叠中增加了一步，要计算 
 
@@ -354,45 +384,49 @@ $$
 \mathsf{fold}^{(i)}(x) = \mathsf{fold}^{(i)}(x) + q_{\hat{q}_{i}}(x)
 $$
 
-但是这里并没有涉及有限域的乘法操作，其余计算复杂度与 Round 3 类似，这里直接将 Prover Cost Round 3 中的 $n$ 变为 $n - 1$ ，即为这一轮的复杂度
+但是这里并没有涉及有限域的乘法操作，其余计算复杂度与 Round 4 类似。$|D^{(i)}| = 2^i \cdot \mathcal{R}$ 。
+
+$2^{-1}$ 不需要再进行计算，这一轮的复杂度为
 
 $$
-\begin{aligned}
-& (\mathcal{R}N - \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} +  (3\mathcal{R}N + (n - 1) - 3\mathcal{R}) ~\mathbb{F}_{\mathsf{mul}}+ \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) \\
-= & (\mathcal{R}N - \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} +  (3\mathcal{R}N + n - 3\mathcal{R} - 1) ~\mathbb{F}_{\mathsf{mul}} + + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})
-\end{aligned}
+\begin{align}
+& \sum_{i = 0}^{n - 2}((2^{i} \cdot \mathcal{R}) ~\mathbb{F}_{\mathsf{inv}} + (3 \cdot 2^{i} \cdot \mathcal{R}+ 1) ~\mathbb{F}_{\mathsf{mul}}) + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) \\ \\
+& = \mathcal{R} \sum_{i = 0}^{n - 2} 2^i ~\mathbb{F}_{\mathsf{inv}} + 3 \mathcal{R} \cdot \sum_{i = 0}^{n - 2} 2^i ~\mathbb{F}_{\mathsf{mul}} + (n - 1) ~ \mathbb{F}_{\mathsf{mul}} + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})  \\
+ & = \mathcal{R} \cdot (\frac{1}{2} N - 1) ~\mathbb{F}_{\mathsf{inv}} + 3 \mathcal{R} \cdot (\frac{1}{2} N - 1) ~\mathbb{F}_{\mathsf{mul}} + (n - 1) ~ \mathbb{F}_{\mathsf{mul}} + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})  \\
+& = (\frac{3}{2} \mathcal{R} \cdot N + n - 3 \mathcal{R} - 1) ~\mathbb{F}_{\mathsf{mul}} + (\frac{1}{2} \mathcal{R} \cdot N - \mathcal{R}) ~\mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
+\end{align}
 $$
 
-#### Round 6
+#### Round 7
 
 这一轮是接着 Prover 与 Verifier 进行 FRI 协议的 low degree test 交互的查询阶段，Verifier 重复查询 $l$ 次 ：
 - Verifier 从 $D^{(n - 1)}$ 中随机选取一个数 $t^{(n - 1)} \in D^{(n - 1)}$
 - Prover 发送 $\hat{q}_{n-1}(t^{(n - 1)})$ 与 $\hat{q}_{n-1}(-t^{(n - 1)})$ 以及其 Merkle Path 
 
 $$
-\{(\hat{q}_{n-1}(t^{(n - 1)}), \pi_{\hat{q}_{n-1}}(t^{(n - 1)})\} \leftarrow \mathsf{MMCS.open}(\hat{q}_{n - 1}, t^{(n - 1)})
+\{(\hat{q}_{n-1}(t^{(n - 1)}), \pi_{\hat{q}_{n-1}}(t^{(n - 1)}))\} \leftarrow \mathsf{MMCS.open}(\hat{q}_{n - 1}, t^{(n - 1)})
 $$
 
 $$
-\{(\hat{q}_{n-1}(-t^{(n - 1)}), \pi_{\hat{q}_{n-1}}(-t^{(n - 1)})\} \leftarrow \mathsf{MMCS.open}(\hat{q}_{n - 1}, -t^{(n - 1)})
+\{(\hat{q}_{n-1}(-t^{(n - 1)}), \pi_{\hat{q}_{n-1}}(-t^{(n - 1)}))\} \leftarrow \mathsf{MMCS.open}(\hat{q}_{n - 1}, -t^{(n - 1)})
 $$
 
 - 对于 $i = n - 2, \ldots, 1$，
   - Prover 计算 $t^{(i)} = (t^{(i + 1)})^2$
   - Prover 发送 $\hat{q}_{i}(t^{(i)})$ 及其 Merkle Path
       $$
-      \{(\hat{q}_{i}(t^{(i)}), \pi_{\hat{q}_{i}}(t^{(i)})\} \leftarrow \mathsf{MMCS.open}(\hat{q}_{i}, t^{(i)})
+      \{(\hat{q}_{i}(t^{(i)}), \pi_{\hat{q}_{i}}(t^{(i)}))\} \leftarrow \mathsf{MMCS.open}(\hat{q}_{i}, t^{(i)})
       $$
 
   - Prover 发送 $\mathsf{fold}^{(i)}(-t^{(i)})$ 及其 Merkle Path
       $$
-      \{(\mathsf{fold}^{(i)}(-t^{(i)}), \pi_{\mathsf{fold}^{(i)}}(-t^{(i)})\} \leftarrow \mathsf{MT.open}(\mathsf{fold}^{(i)}, -t^{(i)})
+      \{(\mathsf{fold}^{(i)}(-t^{(i)}), \pi_{\mathsf{fold}^{(i)}}(-t^{(i)}))\} \leftarrow \mathsf{MT.open}(\mathsf{fold}^{(i)}, -t^{(i)})
       $$ 
 - 对于 $i = 0$ 时，
   - Prover 计算 $t^{(0)} = (t^{(1)})^2$
   - Prover 发送 $\hat{q}_0(s^{(0)})$ 及其 Merkle Path
       $$
-      \{(\hat{q}_0(t^{(0)}), \pi_{\hat{q}_0}(t^{(0)})\} \leftarrow \mathsf{MMCS.open}(\hat{q}_0, t^{(0)})
+      \{(\hat{q}_0(t^{(0)}), \pi_{\hat{q}_0}(t^{(0)}))\} \leftarrow \mathsf{MMCS.open}(\hat{q}_0, t^{(0)})
       $$
 
 > 📝 **Notes**
@@ -407,7 +441,7 @@ $$
 > 
 > ![](./img/zeromorph-fri-query.svg)
 
-##### Prover Cost Round 6
+##### Prover Cost Round 7
 
 在查询阶段，不涉及 Prover 额外的计算。
 
@@ -417,13 +451,13 @@ $$
 
 $$
 \begin{aligned}
-  & \color{red}{(2N \mathcal{R} + N - 2 \mathcal{R} - 2)  ~ \mathbb{F}_{\mathsf{mul}} + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R})} \\
-  & + \color{blue}{(\frac{4}{3} \mathcal{R} N^2 + (4 - 2\mathcal{R}) N - n + \frac{2}{3} \mathcal{R} - 3)  ~ \mathbb{F}_{\mathsf{mul}}} \\
-  & + \color{red}{(\mathcal{R}N - \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} + (3\mathcal{R}N + n - 3\mathcal{R}) ~\mathbb{F}_{\mathsf{mul}} + \sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})} \\
-  & + \color{blue}{(\mathcal{R}N - \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} +  (3\mathcal{R}N + n - 3\mathcal{R} - 1) ~\mathbb{F}_{\mathsf{mul}} + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})} \\
-  = & (\frac{4}{3}\mathcal{R} N^2 + (6 \mathcal{R} + 5) N + n - \frac{22}{3} \mathcal{R} - 6)  ~ \mathbb{F}_{\mathsf{mul}} + (2\mathcal{R}N - 2\mathcal{R} + 2) ~ \mathbb{F}_{\mathsf{inv}} \\
-  & + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R}) + \sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) + \\
-  & + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
+& (\mathcal{R}\cdot nN + (\mathcal{R} \log \mathcal{R} - 2 \mathcal{R} + 1) N + 2\mathcal{R}  - \mathcal{R}\log \mathcal{R}  - 2) ~\mathbb{F}_{\mathsf{mul}}  + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R}) \\
+& + (2N - 1) ~ \mathbb{F}_{\mathsf{mul}} \\
+& + (\mathcal{R} \cdot nN + (\mathcal{R}\log\mathcal{R} + 6 \mathcal{R}) \cdot N - 3 \mathcal{R} ) ~ \mathbb{F}_{\mathsf{mul}} + (2\mathcal{R} \cdot N - \mathcal{R}) ~ \mathbb{F}_{\mathsf{inv}} \\
+& + (3\mathcal{R}N + n - 3\mathcal{R}) ~\mathbb{F}_{\mathsf{mul}}+ (\mathcal{R}N - \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} +\sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) \\
+& + (\frac{3}{2} \mathcal{R} \cdot N + n - 3 \mathcal{R} - 1) ~\mathbb{F}_{\mathsf{mul}} + (\frac{1}{2} \mathcal{R} \cdot N - \mathcal{R}) ~\mathbb{F}_{\mathsf{inv}} + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) \\
+= & (2\mathcal{R}\cdot nN + (2\mathcal{R} \log \mathcal{R} + \frac{17}{2} \mathcal{R} + 3) \cdot  N + 2 \cdot n -  \mathcal{R}\log \mathcal{R} - 7\mathcal{R} - 4) ~\mathbb{F}_{\mathsf{mul}} + (\frac{7}{2} \mathcal{R} \cdot N - 3 \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} \\
+& + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R}) + \sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})
 \end{aligned}
 $$
 
@@ -465,7 +499,20 @@ $$
 计算 $\pi_{q_{f_\zeta}}$ 的大小，
 
 - $\mathsf{cm}(q_{f_\zeta}^{(1)}(X)), \ldots, \mathsf{cm}(q_{f_\zeta}^{(n - 1)}(X)),q_{f_\zeta}^{(n)}(x_0)$ 大小为 $n ~ H + \mathbb{F}$ 。
-- $\hat{f}(s^{(0)}), \pi_{\hat{f}}(s^{(0)}), \hat{f}(- s^{(0)}), \pi_{\hat{f}}(-s^{(0)})$ ，其中 $\pi_{\hat{f}}(s^{(0)})$ 与 $\pi_{\hat{f}}(-s^{(0)})$ 都是 Merkle Path，这里 $\hat{f}$ 是用 Merkle Tree 结构进行承诺的，该树的叶子节点有 $2^n \cdot \mathcal{R}$ 个，因此对于 $\pi_{\hat{f}}(s^{(0)})$ 与 $\pi_{\hat{f}}(-s^{(0)})$ ，一个 Merkle Path 有 $\log (2^n \cdot \mathcal{R}) = n + \log \mathcal{R}$ 个哈希值，总共要发送 $(2n + 2 \log \mathcal{R}) ~ H$ ，若将叶子节点 $\hat{f}(s^{(0)})$ 与 $\hat{f}(- s^{(0)})$ 放在相邻的位置，它们放在一起进行哈希，这样 Merkle Path 还能简化，只需要发送 $n + \log \mathcal{R} - 1$ 个哈希值。因此这一步发送的证明大小为 $2 ~ \mathbb{F} + (n + \log \mathcal{R} - 1) ~ H$ 。
+- $\hat{f}(s^{(0)}), \pi_{\hat{f}}(s^{(0)}), \hat{f}(- s^{(0)}), \pi_{\hat{f}}(-s^{(0)})$ ，其中 $\pi_{\hat{f}}(s^{(0)})$ 与 $\pi_{\hat{f}}(-s^{(0)})$ 都是 Merkle Path，这里 $\hat{f}$ 是用 Merkle Tree 结构进行承诺的，该树的叶子节点有 $2^n \cdot \mathcal{R}$ 个。为了减少这一步打开点发送的 Merkle Path，在用 Merkle Tree 进行承诺时，这里可以将 $\hat{f}(s^{(0)}), \hat{f}(- s^{(0)})$ 放在相邻的叶子节点上，发送的哈希值有 $\log(2^n \cdot \mathcal{R} - 1) ~H$ 。这里也记发送的哈希值的个数为 $(\mathsf{MT.open}(2^n \cdot \mathcal{R}) - 1) ~ H$ 。
+
+其中 $\mathsf{MT.open}(x)$ 表示在 Merkle Tree 中承诺 $x$ 个叶子节点时，其需要发送的 Merkle Path 中的哈希值的个数，那么
+
+$$
+\mathsf{MT.open}(x) = \log x
+$$
+
+因此这一步发送的证明大小为
+
+$$
+2 ~ \mathbb{F} + (\mathsf{MT.open}(2^n \cdot \mathcal{R}) - 1) ~ H = 2 ~ \mathbb{F} + (n + \log \mathcal{R} - 1) ~ H
+$$
+
 - 对于 $i = 1, \ldots, n - 1$ ，发送 $q_{f_\zeta}^{(i)}(s^{(i)}), \pi_{q_{f_\zeta}^{(i)}}(s^{(i)}),q_{f_\zeta}^{(i)}(-s^{(i)}), \pi_{q_{f_\zeta}^{(i)}}(-s^{(i)})$ ，Merkle Tree 的叶子节点的个数为 $2^{n - i} \cdot \mathcal{R}$ ，因此对于每一轮 $i$ ，其大小为 $2 ~ \mathbb{F} + (n - i + \log \mathcal{R} - 1) ~ H$ 。总复杂度为
 
 $$
@@ -530,7 +577,8 @@ $$
   & H + (n + 1) ~ \mathbb{F} + \\
   & + (2 l n + 1) ~ \mathbb{F} + (\frac{l}{2} \cdot n^2 + (\log R \cdot l - \frac{l}{2}) \cdot n ) ~H \\
   & + (2ln - 2l + 1) ~ \mathbb{F} + \left(\frac{3l}{2} \cdot n^2 + (3\log \mathcal{R} \cdot l - \frac{5}{2} l + 1) n - 4 \log \mathcal{R} \cdot l - l - 1 \right) ~H \\
-  = & ((4l + 1)n - 2l + 3) ~ \mathbb{F} + \left(2l \cdot n^2 + (4\log \mathcal{R} \cdot l - 3 l + 1) n - 4 \log \mathcal{R} \cdot l - l\right) ~H
+  = & ((4l + 1)n - 2l + 3) ~ \mathbb{F} + \left(2l \cdot n^2 + (4\log \mathcal{R} \cdot l - 3 l + 1) n - 4 \log \mathcal{R} \cdot l - l\right) ~H\\
+  = & ((4l + 1)n - 2l + 3) ~ \mathbb{F} + \left(2l \cdot N + (4\log \mathcal{R} \cdot l - 3 l + 1) n - 4 \log \mathcal{R} \cdot l - l\right) ~H
 \end{aligned}
 $$
 
@@ -559,11 +607,11 @@ $$
 $$
 - Verifier 计算
   $$
-  q_{f_\zeta}^{(0)}(s^{(0)}) = \frac{\hat{f}(s^{(0)}) - \hat{f}(\zeta)}{s^{(0)} - \zeta}
+  q_{f_\zeta}^{(0)}(s^{(0)}) = (1 + \lambda \cdot s^{(0)}) \cdot \frac{\hat{f}(s^{(0)}) - \hat{f}(\zeta)}{s^{(0)} - \zeta}
   $$
 
   $$
-  q_{f_\zeta}^{(0)}(- s^{(0)}) = \frac{\hat{f}(-s^{(0)}) - \hat{f}(\zeta)}{-s^{(0)} - \zeta}
+  q_{f_\zeta}^{(0)}(- s^{(0)}) = (1 - \lambda \cdot s^{(0)}) \cdot \frac{\hat{f}(-s^{(0)}) - \hat{f}(\zeta)}{-s^{(0)} - \zeta}
   $$
 - 验证 $q_{f_\zeta}^{(1)}(s^{(1)}), q_{f_\zeta}^{(1)}(-s^{(1)})$ 的正确性
 
@@ -585,22 +633,20 @@ $$
   - 验证 $q_{f_\zeta}^{(i)}(s^{(i)}), q_{f_\zeta}^{(i)}(-s^{(i)})$ 的正确性
 
   $$
-  \mathsf{MT.verify}(\mathsf{cm}(q_{f_\zeta}^{(i)}(X)), q_{f_\zeta}^{(i)}(s^{(i)}), \pi_{q_{f_\zeta}^{(i)}}(s^{(i)}) \stackrel{?}{=} 1
+  \mathsf{MT.verify}(\mathsf{cm}(q_{f_\zeta}^{(i)}(X)), q_{f_\zeta}^{(i)}(s^{(i)}), \pi_{q_{f_\zeta}^{(i)}}(s^{(i)})) \stackrel{?}{=} 1
   $$
 
   $$
-  \mathsf{MT.verify}(\mathsf{cm}(q_{f_\zeta}^{(i)}(X)), q_{f_\zeta}^{(i)}(-s^{(i)}), \pi_{q_{f_\zeta}^{(i)}}(-s^{(i)}) \stackrel{?}{=} 1
+  \mathsf{MT.verify}(\mathsf{cm}(q_{f_\zeta}^{(i)}(X)), q_{f_\zeta}^{(i)}(-s^{(i)}), \pi_{q_{f_\zeta}^{(i)}}(-s^{(i)})) \stackrel{?}{=} 1
   $$
-
   - 验证第 $i$ 轮的折叠是否正确
   $$
-  q_{f_\zeta}^{(i)}(s^{(i)}) \stackrel{?}{=} \frac{q_{f_\zeta}^{(0)}(s^{(i - 1)}) + q_{f_\zeta}^{(i - 1)}(- s^{(i - 1)})}{2} + \alpha^{(i)} \cdot \frac{q_{f_\zeta}^{(i - 1)}(s^{(i - 1)}) - q_{f_\zeta}^{(i - 1)}(- s^{(i - 1)})}{2 \cdot s^{(i - 1)}}
+  q_{f_\zeta}^{(i)}(s^{(i)}) \stackrel{?}{=} \frac{q_{f_\zeta}^{(i-1)}(s^{(i - 1)}) + q_{f_\zeta}^{(i - 1)}(- s^{(i - 1)})}{2} + \alpha^{(i)} \cdot \frac{q_{f_\zeta}^{(i - 1)}(s^{(i - 1)}) - q_{f_\zeta}^{(i - 1)}(- s^{(i - 1)})}{2 \cdot s^{(i - 1)}}
   $$
 - 验证最后是否折叠到常数多项式
   $$
   q_{f_\zeta}^{(n)}(x_0) \stackrel{?}{=} \frac{q_{f_\zeta}^{(n-1)}(s^{(n - 1)}) + q_{f_\zeta}^{(n - 1)}(- s^{(n - 1)})}{2} + \alpha^{(n)} \cdot \frac{q_{f_\zeta}^{(n - 1)}(s^{(n - 1)}) - q_{f_\zeta}^{(n - 1)}(- s^{(n - 1)})}{2 \cdot s^{(n - 1)}}
   $$
-
 ###### Verifier Cost 1
 
 重复 $l$ 次：
@@ -622,16 +668,16 @@ $$
 $$
 
 - Verifier 计算
-  
-  $$
-  q_{f_\zeta}^{(0)}(s^{(0)}) = \frac{\hat{f}(s^{(0)}) - \hat{f}(\zeta)}{s^{(0)} - \zeta}
+
+$$
+  q_{f_\zeta}^{(0)}(s^{(0)}) = (1 + \lambda \cdot s^{(0)}) \cdot \frac{\hat{f}(s^{(0)}) - \hat{f}(\zeta)}{s^{(0)} - \zeta}
   $$
 
   $$
-  q_{f_\zeta}^{(0)}(- s^{(0)}) = \frac{\hat{f}(-s^{(0)}) - \hat{f}(\zeta)}{-s^{(0)} - \zeta}
+  q_{f_\zeta}^{(0)}(- s^{(0)}) = (1 - \lambda \cdot s^{(0)}) \cdot \frac{\hat{f}(-s^{(0)}) - \hat{f}(\zeta)}{-s^{(0)} - \zeta}
   $$
 
-复杂度为 $2 ~ \mathbb{F}_{\mathsf{inv}} + 2 ~ \mathbb{F}_{\mathsf{mul}}$ 。
+复杂度为  $5 ~ \mathbb{F}_{\mathsf{mul}} + 2 ~ \mathbb{F}_{\mathsf{inv}}$ 。
 
 - 验证 $q_{f_\zeta}^{(1)}(s^{(1)}), q_{f_\zeta}^{(1)}(-s^{(1)})$ 的正确性
 
@@ -698,10 +744,10 @@ $$
 
 $$
 \begin{aligned}
-  & l \cdot ((n + \log \mathcal{R} - 1) ~ H +  2 ~ \mathbb{F}_{\mathsf{inv}} + 2 ~ \mathbb{F}_{\mathsf{mul}} + (n + \log \mathcal{R} - 2) ~ H \\
+  & l \cdot ((n + \log \mathcal{R} - 1) ~ H +  2 ~ \mathbb{F}_{\mathsf{inv}} + 5 ~ \mathbb{F}_{\mathsf{mul}} + (n + \log \mathcal{R} - 2) ~ H \\
   & + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}} + (n^2 + (\frac{1}{2}n^2 + (\log \mathcal{R} - \frac{5}{2})n - 2 \log \mathcal{R} + 3) H   \\
   & + (2n - 4) ~ \mathbb{F}_{\mathsf{inv}} + (4n - 8) ~ \mathbb{F}_{\mathsf{mul}} + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}}) \\
-  = & (2ln + 2l) ~ \mathbb{F}_{\mathsf{inv}} + (4ln + 2l) ~ \mathbb{F}_{\mathsf{mul}} + (\frac{l}{2}\cdot n^2 + (\log \mathcal{R} l - \frac{l}{2}) n) ~H
+  = & (2ln + 2l) ~ \mathbb{F}_{\mathsf{inv}} + (4ln + 5l) ~ \mathbb{F}_{\mathsf{mul}} + (\frac{l}{2}\cdot n^2 + (\log \mathcal{R} l - \frac{l}{2}) n) ~H
 \end{aligned}
 $$
 
@@ -732,20 +778,21 @@ $$
 
 - Verifier 计算
 
+
 $$
-q_{\hat{q}_{n - 1}}(t^{(n - 1)}) = \frac{\hat{q}_{n - 1}(t^{(n - 1)}) - \hat{q}_{n - 1}(\zeta)}{t^{(n - 1)} - \zeta}
+q_{\hat{q}_{n - 1}}(t^{(n - 1)}) = (1 + \lambda \cdot t^{(n-1)}) \cdot \frac{\hat{q}_{n - 1}(t^{(n - 1)}) - \hat{q}_{n - 1}(\zeta)}{t^{(n - 1)} - \zeta}
 $$
 
 $$
-q_{\hat{q}_{n - 1}}(-t^{(n - 1)}) = \frac{\hat{q}_{n - 1}(-t^{(n - 1)}) - \hat{q}_{n - 1}(\zeta)}{-t^{(n - 1)} - \zeta}
+q_{\hat{q}_{n - 1}}(-t^{(n - 1)}) = (1 - \lambda \cdot t^{(n-1)}) \cdot  \frac{\hat{q}_{n - 1}(-t^{(n - 1)}) - \hat{q}_{n - 1}(\zeta)}{-t^{(n - 1)} - \zeta}
 $$
 
-> Verifier 的计算复杂度为 $2 ~ \mathbb{F}_{\mathsf{inv}} + 2 ~ \mathbb{F}_{\mathsf{mul}}$ 。
+Verifier 的计算复杂度为 $2 ~ \mathbb{F}_{\mathsf{inv}} + 5 ~ \mathbb{F}_{\mathsf{mul}}$ 。
 
 - 初始化 $\mathsf{fold}$ 的值为 
 
     $$
-        \mathsf{fold} = \frac{q_{\hat{q}_{n - 1}}(t^{(n - 1)}) + q_{\hat{q}_{n - 1}}(-t^{(n - 1)})}{2} + \beta^{(n - 2)} \cdot \frac{q_{\hat{q}_{n - 1}}(t^{(n - 1)}) + q_{\hat{q}_{n - 1}}(-t^{(n - 1)})}{2 \cdot t^{(n - 1)}}
+        \mathsf{fold} = \frac{q_{\hat{q}_{n - 1}}(t^{(n - 1)}) + q_{\hat{q}_{n - 1}}(-t^{(n - 1)})}{2} + \beta^{(n - 2)} \cdot \frac{q_{\hat{q}_{n - 1}}(t^{(n - 1)}) - q_{\hat{q}_{n - 1}}(-t^{(n - 1)})}{2 \cdot t^{(n - 1)}}
     $$
 
 > 复杂度为 $2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}}$ 
@@ -764,13 +811,16 @@ $$
   > Verifier 会根据 Prover 发送的证明来计算哈希值进行验证，Prover 发送的哈希值有 $2i + 2 \log \mathcal{R}$ 个，由于 Verifier 还会计算 $\hat{q}_{i}(t^{(i)}$ 的哈希值，因此复杂度为 $(2i + 2 \log \mathcal{R}) ~ C + H$ 。
 
   - Verifier 计算
-  
+
+   $$
+      q_{\hat{q}_{i}}(t^{(i)}) = (1 + \lambda \cdot t^{(i)}) \cdot \frac{\hat{q}_{i}(t^{(i)}) - \hat{q}_{i}(\zeta)}{t^{(i)} - \zeta}
+      $$
+	  
       $$
       q_{\hat{q}_{i}}(t^{(i)}) = \frac{\hat{q}_{i}(t^{(i)}) - \hat{q}_{i}(\zeta)}{t^{(i)} - \zeta}
       $$
 
-    > 计算复杂度为 $\mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}}$ 。
-
+> 计算复杂度为 $\mathbb{F}_{\mathsf{inv}} + 3~ \mathbb{F}_{\mathsf{mul}}$ 。
 
   - 更新 $\mathsf{fold}$ 的值为
 
@@ -804,12 +854,17 @@ $$
     > Verifier 的计算复杂度为 $H + C$ 。
 
   - Verifier 计算
+
+  $$
+        q_{\hat{q}_0}(t^{(0)}) = (1 + \lambda \cdot t^{(0)}) \cdot \frac{\hat{q}_0(t^{(0)}) - \hat{q}_0(\zeta)}{t^{(0)} - \zeta}
+      
+  $$
   
       $$
       q_{\hat{q}_0}(t^{(0)}) = \frac{\hat{q}_0(t^{(0)}) - \hat{q}_0(\zeta)}{t^{(0)} - \zeta}
       $$
 
-> 复杂度为 $\mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}}$ 。
+> 计算复杂度为 $\mathbb{F}_{\mathsf{inv}} + 3~ \mathbb{F}_{\mathsf{mul}}$ 。
 	  
   - Verifier 验证下面式子的正确性
   
@@ -829,15 +884,15 @@ $$
 
 $$
 \begin{aligned}
-  & (2n + 2 \log \mathcal{R} - 3) ~ C + 2~H + 2 ~ \mathbb{F}_{\mathsf{inv}} + 2 ~ \mathbb{F}_{\mathsf{mul}} + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}} \\
-  & + \sum_{i = 1}^{n - 2} \left((2i + 2 \log \mathcal{R}) ~ C + H + \mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}} + (i + \log \mathcal{R}) ~ H + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}}\right) \\
-  & + H + C + \mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}} \\
-  = & (2n + 2 \log \mathcal{R} - 3) ~ C + 2~H + 2 ~ \mathbb{F}_{\mathsf{inv}} + 2 ~ \mathbb{F}_{\mathsf{mul}} + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}} \\
+  & (2n + 2 \log \mathcal{R} - 3) ~ C + 2~H + 2 ~ \mathbb{F}_{\mathsf{inv}} + 5 ~ \mathbb{F}_{\mathsf{mul}} + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}} \\
+  & + \sum_{i = 1}^{n - 2} \left((2i + 2 \log \mathcal{R}) ~ C + H + \mathbb{F}_{\mathsf{inv}} + 3 ~ \mathbb{F}_{\mathsf{mul}} + (i + \log \mathcal{R}) ~ H + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}}\right) \\
+  & + H + C + \mathbb{F}_{\mathsf{inv}} + 3~\mathbb{F}_{\mathsf{mul}} \\
+  = & (2n + 2 \log \mathcal{R} - 3) ~ C + 2~H + 2 ~ \mathbb{F}_{\mathsf{inv}} + 5 ~ \mathbb{F}_{\mathsf{mul}} + 2 ~ \mathbb{F}_{\mathsf{inv}} + 4 ~ \mathbb{F}_{\mathsf{mul}} \\
   & + (n^2 + (2 \log \mathcal{R} - 3)n + 2 - 4 \log \mathcal{R}) ~ C + \left( \frac{1}{2}n^2 + (\log \mathcal{R} - \frac{1}{2}) n - 2 \log \mathcal{R} + 1 \right) ~ H \\
-  & + (5n - 10) ~ \mathbb{F}_{\mathsf{mul}} + (3n - 6) ~ \mathbb{F}_{\mathsf{inv}} \\
-  & + 2 ~H + \mathbb{F}_{\mathsf{inv}} + \mathbb{F}_{\mathsf{mul}} \\
+  & + (7n - 14) ~ \mathbb{F}_{\mathsf{mul}} + (3n - 6) ~ \mathbb{F}_{\mathsf{inv}} \\
+  & + 2 ~H + \mathbb{F}_{\mathsf{inv}} + 3 ~ \mathbb{F}_{\mathsf{mul}} \\
   = &  (n^2 + (2 \log \mathcal{R} - 1)n - 2 \log \mathcal{R} - 1) ~ C + \left( \frac{1}{2}n^2 + (\log \mathcal{R} - \frac{1}{2}) n - 2 \log \mathcal{R} + 5 \right) ~ H \\
-  & + (5n - 3) ~ \mathbb{F}_{\mathsf{mul}} + (3n - 1) ~ \mathbb{F}_{\mathsf{inv}}
+  & + (7n - 2) ~ \mathbb{F}_{\mathsf{mul}} + (3n - 1) ~ \mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
 
@@ -846,14 +901,19 @@ $$
 $$
 \begin{aligned}
   &  (ln^2 + (2 l\log \mathcal{R} - l)n - 2l \log \mathcal{R} - l) ~ C + \left( \frac{l}{2} n^2 + (l\log \mathcal{R} - \frac{l}{2}) n - 2l \log \mathcal{R} + 5l \right) ~ H \\
-  & + (5ln - 3l) ~ \mathbb{F}_{\mathsf{mul}} + (3ln - l) ~ \mathbb{F}_{\mathsf{inv}}
+  & + (7l \cdot n - 2l) ~ \mathbb{F}_{\mathsf{mul}} + (3ln - l) ~ \mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
 
 ##### Step 3
 
-3. 计算 $\Phi_n(\zeta)$ 以及 $\Phi_{n - k}(\zeta^{2^k})(0 \le k < n)$ ，满足
+3. 计算 $\Phi_n(\zeta)$ 以及 $\Phi_{n - k}(\zeta^{2^k})(0 \le k < n)$ ，由于
 
+$$
+\Phi_k(X^h) = 1 + X^h + X^{2h} + \ldots + X^{(2^{k}-1)h}
+$$
+
+因此
 $$
 \Phi_n(\zeta) = 1 + \zeta + \zeta^2 + \ldots + \zeta^{2^n-1}
 $$
@@ -866,19 +926,35 @@ $$
 
 Verifier 计算 
 
-- 对于 $k = 0, 1, \ldots, n - 1$ ，要计算的有
-
 $$
-\begin{matrix}
-    & k = 0 & \zeta   & \zeta^2 & \zeta^3 & \cdots & \zeta^{2^n - 1}\\
-    & k = 1 & \zeta^{1 \cdot 2} &  \zeta^{2 \cdot 2} & \zeta^{3 \cdot 2} & \cdots & \zeta^{(2^{n - 1} - 1) \cdot 2}\\
-    & k = 2 & \zeta^{1 \cdot 4} & \zeta^{2 \cdot 4} & \zeta^{3 \cdot 4} & \cdots & \zeta^{(2^{n - 2} - 1) \cdot 4} \\
-    & &  & & \cdots \\
-    & k = n - 1 & \zeta^{1 \cdot 2^{n - 1}} 
-\end{matrix}
+\begin{align}
+\Phi_k(X^h)  & = 1 + X^h + X^{2h} + \ldots + X^{(2^{k}-1)h}  \\
+ & = \frac{1 - (X^h)^{2^k}}{1 - X^h}
+\end{align}
 $$
 
-可以发现 Verifier 计算 $\zeta^{2 \cdot 1}, \zeta^{3 \cdot 1}, \ldots, \zeta^{(2^n - 1) \cdot 1}$ 就足够了，这里总共有 $2^n - 2$ 项，每次计算需要一次有限域上的乘法，复杂度为 $(N - 2) ~ \mathbb{F}_{\mathsf{mul}}$ 。
+因此
+
+$$
+\Phi_n(\zeta) = \frac{1 - \zeta^{2^n}}{1 - \zeta}
+$$
+
+$$
+\begin{align}
+\Phi_{n - k}(\zeta^{2^k})  & = \frac{1 - (\zeta^{2^k})^{2^{n - k}}}{1 - \zeta^{2^k}} \\
+ & = \frac{1 - \zeta^{2^n}}{1 - \zeta^{2^k}}
+\end{align}
+$$
+
+
+- 对于 $k = 0, 1, \ldots, n - 1$ ，先计算 $\zeta^{2^1}, \zeta^{2^2}, \ldots, \zeta^{2^{n - 1}}, \zeta^{2^n}$ ，复杂度为 $n ~ \mathbb{F}_{\mathsf{mul}}$ 。
+- 对于 $k = 0, 1, \ldots, n - 1$ ，计算 $1 - \zeta^{2^k}$ 的逆再和分子相乘，总复杂度为 $n ~ \mathbb{F}_{\mathsf{mul}} + n ~ \mathbb{F}_{\mathsf{inv}}$ 。
+
+因此这一步的总复杂度为
+
+$$
+2n ~ \mathbb{F}_{\mathsf{mul}} + n ~ \mathbb{F}_{\mathsf{inv}}
+$$
 
 ##### Step 4
 
@@ -905,12 +981,12 @@ $$
 
 $$
 \begin{aligned}
-  & \color{blue}{ (2ln + 2l) ~ \mathbb{F}_{\mathsf{inv}} + (4ln + 2l) ~ \mathbb{F}_{\mathsf{mul}} + (\frac{l}{2}\cdot n^2 + (\log \mathcal{R} l - \frac{l}{2}) n) ~H} \\
+  & \color{blue}{ (2ln + 2l) ~ \mathbb{F}_{\mathsf{inv}} + (4ln + 5l) ~ \mathbb{F}_{\mathsf{mul}} + (\frac{l}{2}\cdot n^2 + (\log \mathcal{R} l - \frac{l}{2}) n) ~H} \\
   & + \color{red}{(ln^2 + (2 l\log \mathcal{R} - l)n - 2l \log \mathcal{R} - l) ~ C + \left( \frac{l}{2}  n^2 + (l\log \mathcal{R} - \frac{l}{2}) n - 2l \log \mathcal{R} + 5l \right) ~ H} \\
-  & \color{red}{+ (5ln - 3l) ~ \mathbb{F}_{\mathsf{mul}} + (3ln - l) ~ \mathbb{F}_{\mathsf{inv}}} \\
-  & + \color{blue}{(N - 2) ~ \mathbb{F}_{\mathsf{mul}}} + \color{red}{(3n + 1) ~ \mathbb{F}_{\mathsf{mul}}} \\
-  = & (ln^2 + (2 l\log \mathcal{R} - l)n - 2l \log \mathcal{R} - l) ~ C + \left( ln^2 + (2l\log \mathcal{R} - l) n - 2l \log \mathcal{R} + 5l \right) ~ H\\
-  & + (N + (9l + 3)n - l - 1) ~ \mathbb{F}_{\mathsf{mul}} + (5ln + l) ~ \mathbb{F}_{\mathsf{inv}}
+  & \color{red}{+ (7ln - 2l) ~ \mathbb{F}_{\mathsf{mul}} + (3ln - l) ~ \mathbb{F}_{\mathsf{inv}}} \\
+  & + \color{blue}{2n ~ \mathbb{F}_{\mathsf{mul}} + n ~ \mathbb{F}_{\mathsf{inv}}} + \color{red}{(3n + 1) ~ \mathbb{F}_{\mathsf{mul}}} \\
+  = & (l \cdot N + (2 l\log \mathcal{R} - l)n - 2l \log \mathcal{R} - l) ~ C + \left( l \cdot N + (2l\log \mathcal{R} - l) n - 2l \log \mathcal{R} + 5l \right) ~ H\\
+  & + ((11l + 5)n + 3l + 1) ~ \mathbb{F}_{\mathsf{mul}} + (5ln + l) ~ \mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
 
@@ -919,24 +995,25 @@ $$
 Prover's Cost:
 
 $$
-\begin{aligned}
-  & (\frac{4}{3}\mathcal{R} N^2 + (6 \mathcal{R} + 5) N + n - \frac{22}{3} \mathcal{R} - 6)  ~ \mathbb{F}_{\mathsf{mul}} + (2\mathcal{R}N - 2\mathcal{R} + 2) ~ \mathbb{F}_{\mathsf{inv}} \\
-  & + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R}) + \sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) + \\
-  & + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) 
-\end{aligned}
+\begin{align}
+ & (2\mathcal{R}\cdot nN + (2\mathcal{R} \log \mathcal{R} + \frac{17}{2} \mathcal{R} + 3) \cdot  N + 2 \cdot n -  \mathcal{R}\log \mathcal{R} - 7\mathcal{R} - 4) ~\mathbb{F}_{\mathsf{mul}} + (\frac{7}{2} \mathcal{R} \cdot N - 3 \mathcal{R} + 1) ~\mathbb{F}_{\mathsf{inv}} \\
+& + \mathsf{MMCS.commit}(2^{n-1} \cdot \mathcal{R}, \ldots, \mathcal{R}) + \sum_{i = 1}^{n - 1}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R}) + \sum_{i = 1}^{n - 2}\mathsf{MT.commit}(2^{i} \cdot \mathcal{R})
+\end{align}
 $$
 
 Proof size:
 
 $$
-((4l + 1)n - 2l + 3) ~ \mathbb{F} + \left(2l \cdot n^2 + (4\log \mathcal{R} \cdot l - 3 l + 1) n - 4 \log \mathcal{R} \cdot l - l\right) ~H
+\begin{align}
+((4l + 1)n - 2l + 3) ~ \mathbb{F} + \left(2l \cdot N + (4\log \mathcal{R} \cdot l - 3 l + 1) n - 4 \log \mathcal{R} \cdot l - l\right) ~H
+\end{align}
 $$
 
 Verifier's Cost:
 
 $$
 \begin{aligned}
-  & (ln^2 + (2 l\log \mathcal{R} - l)n - 2l \log \mathcal{R} - l) ~ C + \left( ln^2 + (2l\log \mathcal{R} - l) n - 2l \log \mathcal{R} + 5l \right) ~ H\\
-  & + (N + (9l + 3)n - l - 1) ~ \mathbb{F}_{\mathsf{mul}} + (5ln + l) ~ \mathbb{F}_{\mathsf{inv}}
+  & (l \cdot N + (2 l\log \mathcal{R} - l)n - 2l \log \mathcal{R} - l) ~ C + \left( l \cdot N + (2l\log \mathcal{R} - l) n - 2l \log \mathcal{R} + 5l \right) ~ H\\
+  & + ((11l + 5)n + 3l + 1) ~ \mathbb{F}_{\mathsf{mul}} + (5ln + l) ~ \mathbb{F}_{\mathsf{inv}}
 \end{aligned}
 $$
