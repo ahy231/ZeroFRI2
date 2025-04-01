@@ -33,6 +33,12 @@ use rand::SeedableRng as _;
 use rand_9::Rng;
 use rand_9::SeedableRng as _;
 use rand_chacha_9::ChaCha20Rng;
+use rayon::iter::{
+    IndexedParallelIterator as _, IntoParallelIterator, IntoParallelRefIterator as _,
+    IntoParallelRefMutIterator, ParallelIterator,
+};
+use rayon::prelude::ParallelSliceMut;
+use rayon::slice::ParallelSlice as _;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::digest::{Output, OutputSizeUser};
@@ -42,7 +48,7 @@ use std::marker::PhantomData;
 use std::time::Instant;
 
 type Val = MyFr;
-type Challenge = BinomialExtensionField<MyFr, 1, MyFr>;
+type Challenge = BinomialExtensionField<Val, 1, Val>;
 
 type ByteHash = Keccak256Hash;
 type FieldHash = SerializingHasher32<ByteHash>;
@@ -65,14 +71,14 @@ pub static mut num_queries: usize = 0;
 pub static mut proof_of_work_bits: usize = 0;
 pub static mut degree_bound: usize = 0;
 
-pub static mut query_paths_static: Option<Vec<(Vec<Challenge>, Vec<usize>, Vec<MyFr>)>> = None;
-pub static mut merkle_paths_static: Option<Vec<Vec<Vec<[u8; 32]>>>> = None;
-pub static mut first_merkle_paths_static: Option<Vec<Vec<([u8; 32], [u8; 32])>>> = None;
+pub static mut query_paths_static: Option<Vec<(Vec<Challenge>, Vec<usize>, Vec<Val>)>> = None;
+pub static mut merkle_paths_static: Option<Vec<Vec<Vec<([u8; 32], [u8; 32])>>>> = None;
+pub static mut first_merkle_paths_static: Option<Vec<Vec<[u8; 32]>>> = None;
 pub static mut intermediate_oracles_static: Option<Vec<[u8; 32]>> = None;
 pub static mut final_value_static: Option<Challenge> = None;
 pub static mut first_oracle_static: Option<[u8; 32]> = None;
 
-pub static mut ldes: Option<HashMap<Vec<MyFr>, Vec<MyFr>>> = None;
+pub static mut ldes: Option<HashMap<Vec<Val>, Vec<Val>>> = None;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BatchedFri<F, H> {
@@ -104,9 +110,9 @@ impl<F: Field> Iterator for Powers<F> {
         Some(result)
     }
 }
-impl<H: Hash> PolynomialCommitmentScheme<MyFr> for BatchedFri<MyFr, H>
+impl<H: Hash> PolynomialCommitmentScheme<Val> for BatchedFri<Val, H>
 where
-    DenseMatrix<MyFr>: Matrix<MyFr>,
+    DenseMatrix<Val>: Matrix<Val>,
 {
     type Param = ();
 
@@ -114,9 +120,9 @@ where
 
     type VerifierParam = ();
 
-    type Polynomial = UnivariatePolynomial<MyFr, CoefficientBasis>;
+    type Polynomial = UnivariatePolynomial<Val, CoefficientBasis>;
 
-    type Commitment = BatchedFriCommitment<MyFr, H>;
+    type Commitment = BatchedFriCommitment<Val, H>;
 
     type CommitmentChunk = Output<H>;
 
@@ -135,12 +141,8 @@ where
         let mut gen = Val::two_adic_generator(log_evals);
         let mut table = Vec::with_capacity(log_evals);
         for i in 0..log_evals {
-            let mut tmp = <MyFr as ff::Field>::ONE;
-            let mut row = Vec::with_capacity(1 << (log_evals - i));
-            for j in 0..(1 << (log_evals - i - 1)) {
-                row.push(tmp);
-                tmp *= gen;
-            }
+            let mut tmp = <Val as ff::Field>::ONE;
+            let mut row = gen.powers().take(1 << (log_evals - i)).collect_vec();
             table.push(row);
             gen *= gen;
         }
@@ -187,24 +189,15 @@ where
         table_copy.reverse();
         table_copy[0].push(-<Val as ff::Field>::ONE);
 
-        let timer = Instant::now();
-        let tree = merkelize_mmcs::<MyFr, Blake2s>(
+        let tree = merkelize_mmcs::<Val, Blake2s>(
             &polys
                 .clone()
-                .into_iter()
+                .iter()
                 .map(|p| {
                     let mut coeffs = p.coeffs().to_vec();
                     reverse_index_bits_in_place(&mut coeffs);
-
-                    let timer = Instant::now();
-                    let evals = evaluate_over_foldable_domain(log_rate, coeffs, &table_copy);
-                    println!("eval time: {:?}", timer.elapsed());
-
-                    // let mut coeffs_appended =
-                    //     vec![<MyFr as ff::Field>::ZERO; coeffs.len() << log_rate];
-                    // coeffs_appended[..coeffs.len()].copy_from_slice(&coeffs);
-                    // let dft = Dft::default();
-                    // let evals = dft.dft(coeffs_appended);
+                    let mut evals = evaluate_over_foldable_domain(log_rate, coeffs, &table_copy);
+                    reverse_index_bits_in_place(&mut evals);
 
                     unsafe {
                         ldes.as_mut()
@@ -214,11 +207,10 @@ where
 
                     evals
                 })
-                .collect_vec(),
+                .collect(),
         );
-        println!("mmcs {:?}", timer.elapsed());
 
-        let comm = tree
+        let comm: Vec<Vec<[u8; 32]>> = tree
             .iter()
             .map(|t| {
                 t.iter()
@@ -226,9 +218,9 @@ where
                         let bytes = e.as_ref();
                         *bytes
                     })
-                    .collect_vec()
+                    .collect()
             })
-            .collect_vec();
+            .collect();
 
         unsafe {
             degree_bound = polys.into_iter().next().unwrap().coeffs().len();
@@ -244,9 +236,9 @@ where
         pp: &Self::ProverParam,
         poly: &Self::Polynomial,
         comm: &Self::Commitment,
-        point: &crate::pcs::Point<MyFr, Self::Polynomial>,
-        eval: &MyFr,
-        transcript: &mut impl crate::util::transcript::TranscriptWrite<Self::CommitmentChunk, MyFr>,
+        point: &crate::pcs::Point<Val, Self::Polynomial>,
+        eval: &Val,
+        transcript: &mut impl crate::util::transcript::TranscriptWrite<Self::CommitmentChunk, Val>,
     ) -> Result<(), crate::Error> {
         Self::batch_open(
             pp,
@@ -262,9 +254,9 @@ where
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
-        points: &[crate::pcs::Point<MyFr, Self::Polynomial>],
-        evals: &[crate::pcs::Evaluation<MyFr>],
-        transcript: &mut impl crate::util::transcript::TranscriptWrite<Self::CommitmentChunk, MyFr>,
+        points: &[crate::pcs::Point<Val, Self::Polynomial>],
+        evals: &[crate::pcs::Evaluation<Val>],
+        transcript: &mut impl crate::util::transcript::TranscriptWrite<Self::CommitmentChunk, Val>,
     ) -> Result<(), crate::Error>
     where
         Self::Polynomial: 'a,
@@ -282,39 +274,51 @@ where
                 res
             })
             .collect_vec();
+        let mut table = unsafe { table_static.clone().unwrap() };
+        for layer in table.iter_mut() {
+            reverse_index_bits_in_place(layer);
+        }
 
         let polys = polys.into_iter().collect_vec();
         let log_rate = unsafe { log_blowup };
+        let p_evals = polys
+            .iter()
+            .map(|p| unsafe {
+                ldes.as_ref()
+                    .unwrap()
+                    .get(&p.coeffs().to_vec())
+                    .unwrap()
+                    .clone()
+            })
+            .collect_vec();
 
         let mut num_vars =
             log2_strict_usize(polys.clone().into_iter().next().unwrap().coeffs().len()) + log_rate;
-        let mut gen = Val::two_adic_generator(num_vars);
-        let quotients = polys
+        let quotients = p_evals
             .clone()
             .into_iter()
             .zip(evals.into_iter().map(|e| e.value))
             .zip(points.into_iter())
-            .map(|((p, eval), point)| {
-                let coeffs = p.coeffs().to_vec();
-                let p_evals = unsafe { ldes.as_ref().unwrap().get(&coeffs).unwrap().clone() };
-                assert!(p_evals.len() == 1 << num_vars);
-                let numerator = p_evals.clone().into_iter().map(|e| e - eval).collect_vec();
+            .enumerate()
+            .map(|(i, ((p, eval), point))| {
+                let numerator: Vec<Val> = p.par_iter().map(|e| *e - eval).collect();
 
-                let mut acc = <Val as ff::Field>::ONE;
                 let mut denominator = Vec::with_capacity(1 << num_vars);
-                for i in 0..(1 << num_vars) {
-                    denominator.push(acc - point);
-                    acc *= gen;
+
+                for j in 0..(1 << num_vars) {
+                    denominator.push(table[i][j] - point);
                 }
                 denominator.iter_mut().batch_invert();
 
-                let quotient = numerator
+                let mut quotient: Vec<Val> = numerator
+                    .clone()
                     .into_iter()
-                    .zip(denominator.into_iter())
-                    .map(|(n, d)| n * d)
-                    .collect_vec();
+                    .zip(denominator.clone().into_iter())
+                    .collect_vec()
+                    .par_iter()
+                    .map(|(n, d)| *n * *d)
+                    .collect();
 
-                gen *= gen;
                 num_vars -= 1;
 
                 quotient
@@ -325,41 +329,46 @@ where
         let lambda = transcript.squeeze_challenge();
         let mut folded =
             vec![Challenge::from(<Val as ff::Field>::ZERO); 1 << (num_vars + log_rate)];
-        let mut gen = Val::two_adic_generator(num_vars + log_rate);
 
         let mut trees = Vec::with_capacity(num_vars);
         let mut comms = Vec::with_capacity(num_vars);
         let mut tree_evals = Vec::with_capacity(num_vars);
-        for i in 0..num_vars {
+        for i in 0..num_vars + 1 {
             let alpha = Challenge::from(transcript.squeeze_challenge());
 
             folded = folded
                 .into_iter()
                 .zip(quotients[i].clone().into_iter())
-                .zip(gen.powers())
-                .map(|((a, b), g)| a + Challenge::from(b) * (<Val as ff::Field>::ONE + lambda * g))
-                .collect_vec();
+                .zip(table[i].clone().into_iter())
+                .collect_vec()
+                .par_iter()
+                .map(|((a, b), g)| {
+                    *a + Challenge::from(*b) * (<Val as ff::Field>::ONE + lambda * g)
+                })
+                .collect();
 
-            let folded_repr: Vec<MyFr> = folded
+            let folded_repr: Vec<Val> = folded
                 .clone()
                 .into_iter()
                 .map(|e| e.as_base().unwrap())
                 .collect_vec();
 
-            let tree = merkelize::<MyFr, H>(&folded_repr);
+            let tree = merkelize::<Val, H>(&folded_repr);
             trees.push(tree.clone());
             tree_evals.push(folded.clone());
 
-            folded = fold_row(folded, alpha, gen);
+            folded = fold_row(folded, alpha, table[i].clone());
 
             // transcript.write_field_element(&field_element);
             let intermediate_oracle: [u8; 32] = tree.iter().last().unwrap()[0].as_ref()[..32]
                 .try_into()
                 .unwrap();
             comms.push(intermediate_oracle);
-
-            gen *= gen;
         }
+
+        // for i in 1..folded.len() {
+        //     assert!(folded[i] == folded[0], "folded: {:?}", folded);
+        // }
 
         let query_num = unsafe { num_queries };
         let queries = transcript
@@ -368,7 +377,6 @@ where
             .map(|q| q.as_canonical_u64() as usize % (1usize << (num_vars + log_rate)))
             .collect_vec();
 
-        let table = unsafe { table_static.clone().unwrap() };
         let mut query_paths = Vec::with_capacity(query_num);
         for q in queries.clone() {
             let mut query_range = 1 << (num_vars + log_rate);
@@ -377,57 +385,30 @@ where
             let mut reduced_openings = Vec::with_capacity(query_range);
             let mut q_copy = q;
 
-            for i in 0..num_vars {
-                let q_sibling = q_copy ^ (query_range / 2);
-                assert!(
-                    q_sibling < tree_evals[i].len(),
-                    "q_copy: {}, q_sibling: {}, tree_evals[i].len(): {}, query_range: {}, query_range / 2: {}",
-                    q_copy,
-                    q_sibling,
-                    tree_evals[i].len(),
-                    query_range,
-                    query_range / 2
-                );
+            for i in 0..num_vars + 1 {
+                let q_sibling = q_copy ^ 1;
+
                 cur_path.push(tree_evals[i][q_sibling]);
-                if q_copy < table[i].len() {
-                    reduced_openings.push(polys[i].evaluate(&table[i][q_copy]));
-                } else {
-                    reduced_openings.push(polys[i].evaluate(&-table[i][q_copy - table[i].len()]));
-                }
+                reduced_openings.push(p_evals[i][q_copy]);
 
                 indices.push(q_copy);
-                if q_sibling < q_copy {
-                    q_copy = q_sibling;
-                }
+                q_copy >>= 1;
                 query_range >>= 1;
             }
 
-            if q_copy < table[num_vars].len() {
-                reduced_openings.push(polys.last().unwrap().evaluate(&table[num_vars][q_copy]));
-                indices.push(q_copy);
-            } else {
-                reduced_openings.push(
-                    polys
-                        .last()
-                        .unwrap()
-                        .evaluate(&-table[num_vars][q_copy - table[num_vars].len()]),
-                );
-                indices.push(q_copy - table[num_vars].len());
-            }
             query_paths.push((cur_path, indices, reduced_openings));
         }
 
-        let mut first_merkle_paths = Vec::with_capacity(query_num);
+        let mut first_merkle_paths: Vec<Vec<[u8; 32]>> = Vec::with_capacity(query_num);
         for q in queries {
-            let mmcs_proof = get_merkle_path_mmcs::<H, MyFr>(&comm, q, num_vars + log_rate, true);
-            let mmcs_proof: Vec<([u8; 32], [u8; 32])> = mmcs_proof
-                .iter()
-                .map(|(a, b)| {
+            let mmcs_proof = get_merkle_path_mmcs::<H, Val>(&comm, q);
+            let mmcs_proof: Vec<[u8; 32]> = mmcs_proof
+                .par_iter()
+                .map(|a| {
                     let a: [u8; 32] = a.as_ref()[0..32].try_into().unwrap();
-                    let b: [u8; 32] = b.as_ref()[0..32].try_into().unwrap();
-                    (a, b)
+                    a
                 })
-                .collect_vec();
+                .collect();
             first_merkle_paths.push(mmcs_proof);
         }
 
@@ -435,14 +416,15 @@ where
         for (cur_path, indices, _ros) in query_paths.clone() {
             let mut cur_query_paths = Vec::with_capacity(num_vars);
             for (i, (tree, idx)) in trees.iter().zip(indices.iter().skip(1)).enumerate() {
-                let path =
-                    get_merkle_path::<H, MyFr>(tree, *idx, num_vars + log_rate - i - 1, true)
-                        .into_iter()
-                        .map(|e| {
-                            let bytes: [u8; 32] = e.as_ref()[0..32].try_into().unwrap();
-                            bytes
-                        })
-                        .collect_vec();
+                let path: Vec<([u8; 32], [u8; 32])> = get_merkle_path::<H, Val>(tree, *idx, false)
+                    .par_iter()
+                    .map(|v| {
+                        let (e0, e1) = (v[0].clone(), v[1].clone());
+                        let bytes0: [u8; 32] = e0.as_ref()[0..32].try_into().unwrap();
+                        let bytes1: [u8; 32] = e1.as_ref()[0..32].try_into().unwrap();
+                        (bytes0, bytes1)
+                    })
+                    .collect();
                 cur_query_paths.push(path);
             }
             merkle_paths.push(cur_query_paths);
@@ -452,7 +434,7 @@ where
             let cur_path_base = cur_path
                 .iter()
                 .map(|e| {
-                    <BinomialExtensionField<MyFr, 1> as ExtensionField<MyFr>>::as_base(e).unwrap()
+                    <BinomialExtensionField<Val, 1> as ExtensionField<Val>>::as_base(e).unwrap()
                 })
                 .collect_vec();
             let base_ref = cur_path_base.iter().collect_vec();
@@ -461,18 +443,18 @@ where
         }
 
         for mp in merkle_paths.iter() {
-            transcript.write_field_elements(vec![&MyFr::TWO; mp.len()]);
+            transcript.write_field_elements(vec![&Val::TWO; mp.len()]);
         }
 
         for fp in first_merkle_paths.iter() {
-            transcript.write_field_elements(vec![&MyFr::TWO; fp.len()]);
+            transcript.write_field_elements(vec![&Val::TWO; fp.len()]);
         }
 
-        transcript.write_field_elements(vec![&MyFr::TWO; comms.len()]);
+        transcript.write_field_elements(vec![&Val::TWO; comms.len()]);
 
         transcript.write_field_element(&folded[0].as_base().unwrap());
 
-        transcript.write_field_element(&MyFr::TWO); // write comm
+        transcript.write_field_element(&Val::TWO); // write comm
 
         unsafe {
             query_paths_static = Some(query_paths);
@@ -489,7 +471,7 @@ where
     fn read_commitments(
         vp: &Self::VerifierParam,
         num_polys: usize,
-        transcript: &mut impl crate::util::transcript::TranscriptRead<Self::CommitmentChunk, MyFr>,
+        transcript: &mut impl crate::util::transcript::TranscriptRead<Self::CommitmentChunk, Val>,
     ) -> Result<Vec<Self::Commitment>, crate::Error> {
         Ok(vec![BatchedFriCommitment {
             phantom: PhantomData,
@@ -499,9 +481,9 @@ where
     fn verify(
         vp: &Self::VerifierParam,
         comm: &Self::Commitment,
-        point: &crate::pcs::Point<MyFr, Self::Polynomial>,
-        eval: &MyFr,
-        transcript: &mut impl crate::util::transcript::TranscriptRead<Self::CommitmentChunk, MyFr>,
+        point: &crate::pcs::Point<Val, Self::Polynomial>,
+        eval: &Val,
+        transcript: &mut impl crate::util::transcript::TranscriptRead<Self::CommitmentChunk, Val>,
     ) -> Result<(), crate::Error> {
         Self::batch_verify(
             vp,
@@ -515,9 +497,9 @@ where
     fn batch_verify<'a>(
         vp: &Self::VerifierParam,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
-        points: &[crate::pcs::Point<MyFr, Self::Polynomial>],
-        evals: &[crate::pcs::Evaluation<MyFr>],
-        transcript: &mut impl crate::util::transcript::TranscriptRead<Self::CommitmentChunk, MyFr>,
+        points: &[crate::pcs::Point<Val, Self::Polynomial>],
+        evals: &[crate::pcs::Evaluation<Val>],
+        transcript: &mut impl crate::util::transcript::TranscriptRead<Self::CommitmentChunk, Val>,
     ) -> Result<(), crate::Error>
     where
         Self::Commitment: 'a,
@@ -530,7 +512,10 @@ where
         let log_degree_bound = log2_ceil_usize(degree_bound_);
         let log_evals = log2_strict_usize(degree_bound_ * rate);
 
-        let table = unsafe { table_static.clone().unwrap() };
+        let mut table = unsafe { table_static.clone().unwrap() };
+        for layer in table.iter_mut() {
+            reverse_index_bits_in_place(layer);
+        }
         let first_oracle = unsafe { first_oracle_static.clone().unwrap() };
         let intermediate_oracles = unsafe { intermediate_oracles_static.clone().unwrap() };
         let final_value = unsafe { final_value_static.unwrap() };
@@ -541,7 +526,7 @@ where
         let lambda = transcript.squeeze_challenge();
         let mut fold_challenges = Vec::with_capacity(log_degree_bound);
 
-        for i in 0..log_degree_bound {
+        for i in 0..log_degree_bound + 1 {
             fold_challenges.push(transcript.squeeze_challenge());
             // let _oracle = transcript.read_field_element();
         }
@@ -553,69 +538,51 @@ where
             .map(|q| q.as_canonical_u64() as usize % (1usize << log_evals))
             .collect_vec();
 
+        let inv_two = Val::TWO.invert().unwrap();
+
         for (q, (cur_path, indices, reduced_openings), mps, fmp) in izip!(
             queries,
             query_paths.clone().into_iter(),
             merkle_paths.clone().into_iter(),
             first_merkle_paths.clone().into_iter()
         ) {
-            let mut num_vars_copy = degree_bound_ * rate;
-            let mut folded = <MyFr as ff::Field>::ZERO;
+            let mut folded = <Val as ff::Field>::ZERO;
 
-            // authenticate_merkle_path_root(
-            //     fmp,
-            //     (first_oracle, first_oracle),
-            //     q,
-            //     Output::<H>::from_slice(&first_oracle),
-            // );
-
-            // mmcs_val.verify_batch(
-            //     &first_oracle,
-            //     &dimensions,
-            //     q,
-            //     &opened_values.as_slice(),
-            //     &fmp,
-            // );
+            let fmp_vec = fmp.iter().map(|v| Output::<H>::from_slice(v)).collect_vec();
+            authenticate_merkle_path_mmcs::<H, Val>(
+                &fmp_vec,
+                &reduced_openings,
+                q,
+                log_evals,
+                Output::<H>::from_slice(&first_oracle),
+            );
 
             let mut q_copy = q;
-            for i in 0..log_degree_bound {
-                let mut p;
-                if q_copy < table[i].len() {
-                    p = table[i][q_copy];
-                } else {
-                    p = -table[i][q_copy - table[i].len()];
-                }
-                let cur_quotient = (<MyFr as ff::Field>::ONE + lambda * p)
-                    * (reduced_openings[i] - evals[i].value)
-                    / (p - points[0]);
+            for i in 0..log_degree_bound + 1 {
+                let p = table[i][q_copy];
+
+                let tmp = (reduced_openings[i] - evals[i].value) / (p - points[0]);
+                let cur_quotient = (<Val as ff::Field>::ONE + lambda * p) * tmp;
+
                 folded += cur_quotient;
 
-                let sibling = q_copy ^ (num_vars_copy / 2);
+                let sibling = q_copy ^ 1;
 
                 let alpha = fold_challenges[i];
                 let mut evals = vec![cur_path[i].as_base().unwrap(); 2];
-                assert!(
-                    q_copy / (num_vars_copy / 2) < evals.len(),
-                    "q_copy: {}, num_vars_copy: {}, evals.len(): {}",
-                    q_copy,
-                    num_vars_copy,
-                    evals.len()
-                );
-                evals[q_copy / (num_vars_copy / 2)] = folded;
+
+                evals[q_copy & 1] = folded;
 
                 if sibling < q_copy {
                     q_copy = sibling;
                 }
 
-                let mut p;
-                if q_copy < table[i].len() {
-                    p = table[i][q_copy];
-                } else {
-                    p = -table[i][q_copy - table[i].len()];
-                }
-                folded = (evals[0] + evals[1]) / MyFr::TWO
-                    + alpha * (evals[0] - evals[1]) / (MyFr::TWO * p);
-                num_vars_copy >>= 1;
+                let p = table[i][q_copy];
+                let inv_p = p.invert().unwrap();
+                folded = (evals[0] + evals[1]) * inv_two
+                    + alpha * (evals[0] - evals[1]) * inv_two * inv_p;
+
+                q_copy >>= 1;
             }
 
             assert!(folded == final_value.as_base().unwrap());
@@ -628,8 +595,9 @@ where
 
         for mp in merkle_paths.iter() {
             for tree in mp.iter() {
-                for e in tree.iter() {
-                    transcript.read_field_elements(e.len());
+                for (e0, e1) in tree.iter() {
+                    transcript.read_field_elements(e0.len());
+                    transcript.read_field_elements(e1.len());
                 }
             }
         }
@@ -649,26 +617,23 @@ where
     }
 }
 
-fn fold_row(evals: Vec<Challenge>, alpha: Challenge, g: MyFr) -> Vec<Challenge> {
+fn fold_row(evals: Vec<Challenge>, alpha: Challenge, mut table: Vec<Val>) -> Vec<Challenge> {
     assert!(evals.len() % 2 == 0);
+    assert!(table.len() == evals.len());
 
-    let inv_two = MyFr::TWO.invert().unwrap();
-    let inv_g = g.invert().unwrap();
+    let inv_two = Val::TWO.invert().unwrap();
+    table.batch_invert();
 
-    let half = evals.len() / 2;
-    let f0_evals = (0..half)
-        .map(|i| (evals[i] + evals[half + i]) * Challenge::from(inv_two))
-        .collect_vec();
-    let f1_evals = (0..half)
-        .zip(inv_g.powers())
-        .map(|(i, inv_g)| (evals[i] - evals[half + i]) * Challenge::from(inv_two * inv_g))
-        .collect_vec();
-
-    f0_evals
-        .into_iter()
-        .zip(f1_evals.into_iter())
-        .map(|(a, b)| a + b * alpha)
-        .collect_vec()
+    evals
+        .par_chunks_exact(2)
+        .enumerate()
+        .map(|(i, chunk)| {
+            let inv_p = table[2 * i];
+            let a = (chunk[0] + chunk[1]) * inv_two;
+            let b = (chunk[0] - chunk[1]) * inv_two * inv_p;
+            a + alpha * b
+        })
+        .collect()
 }
 
 pub fn evaluate_over_foldable_domain<F: PrimeField>(
@@ -698,9 +663,9 @@ pub fn evaluate_over_foldable_domain<F: PrimeField>(
     for i in 0..logk {
         let level = &table[i + log_rate];
         chunk_size = chunk_size << 1;
-        assert_eq!(level.len(), chunk_size >> 1);
+        assert_eq!(level.len(), chunk_size);
         <Vec<F> as AsMut<[F]>>::as_mut(&mut coeffs_with_rep)
-            .chunks_mut(chunk_size)
+            .par_chunks_mut(chunk_size)
             .for_each(|chunk| {
                 let half_chunk = chunk_size >> 1;
                 for j in half_chunk..chunk_size {
@@ -717,7 +682,7 @@ fn merkelize_mmcs<F: PrimeField, H: Hash>(values: &Vec<Vec<F>>) -> Vec<Vec<Outpu
     let log_v = log2_strict_usize(values[0].len());
     let mut tree = Vec::with_capacity(log_v);
 
-    let values = values
+    let values: Vec<Vec<Output<H>>> = values
         .iter()
         .map(|v| {
             v.iter()
@@ -726,16 +691,17 @@ fn merkelize_mmcs<F: PrimeField, H: Hash>(values: &Vec<Vec<F>>) -> Vec<Vec<Outpu
                     hasher.update_field_element(f);
                     hasher.finalize_fixed()
                 })
-                .collect_vec()
+                .collect()
         })
-        .collect_vec();
+        .collect();
 
     tree.push(values[0].clone());
-    let mut idx = 0;
+    let mut idx = 1;
 
-    for i in 0..log_v {
+    let mut i = 0;
+    while idx < values.len() {
         let mut oracle = tree[i]
-            .chunks_exact(2)
+            .par_chunks_exact(2)
             .map(|ys| {
                 let mut hasher = H::new();
                 hasher.update(&ys[0]);
@@ -744,21 +710,51 @@ fn merkelize_mmcs<F: PrimeField, H: Hash>(values: &Vec<Vec<F>>) -> Vec<Vec<Outpu
             })
             .collect::<Vec<_>>();
 
-        if idx < values.len() && values[idx].len() == 1 << (log_v - i) {
+        if values[idx].len() == 1 << (log_v - i - 1) {
             oracle = oracle
                 .iter()
                 .zip(values[idx].iter())
+                .collect_vec()
+                .iter()
                 .map(|(hash, value)| {
                     let mut hasher = H::new();
                     hasher.update(hash);
                     hasher.update(value);
                     hasher.finalize_fixed()
                 })
-                .collect_vec();
+                .collect();
             idx += 1;
         }
 
         tree.push(oracle.clone());
+        i += 1;
+    }
+
+    let mut hasher = H::new();
+    hasher.update(&Output::<H>::default());
+    let default_hash = hasher.finalize_fixed();
+
+    while i < log_v {
+        let mut oracle: Vec<Output<H>> = tree[i]
+            .par_chunks_exact(2)
+            .map(|ys| {
+                let mut hasher = H::new();
+                hasher.update(&ys[0]);
+                hasher.update(&ys[1]);
+                hasher.finalize_fixed()
+            })
+            .collect();
+        oracle = oracle
+            .iter()
+            .map(|o| {
+                let mut hasher = H::new();
+                hasher.update(o);
+                hasher.update(&default_hash);
+                hasher.finalize_fixed()
+            })
+            .collect_vec();
+        tree.push(oracle);
+        i += 1;
     }
 
     tree
@@ -767,31 +763,70 @@ fn merkelize_mmcs<F: PrimeField, H: Hash>(values: &Vec<Vec<F>>) -> Vec<Vec<Outpu
 fn get_merkle_path_mmcs<H: Hash, F: PrimeField>(
     tree: &Vec<Vec<Output<H>>>,
     mut x_index: usize,
-    mut num_vars: usize,
-    root: bool,
-) -> Vec<(Output<H>, Output<H>)> {
+) -> Vec<&Output<H>> {
     let mut queries = Vec::with_capacity(tree.len());
 
-    for oracle in tree {
-        if oracle.len() == 1 {
-            if root {
-                queries.push((oracle[0].clone(), oracle[0].clone()));
-            }
+    for (i, oracle) in tree.iter().enumerate() {
+        if i == tree.len() - 1 {
             break;
         }
-        let mut p0 = x_index;
-        let mut p1 = x_index ^ (1 << (num_vars - 1));
-        if p1 < p0 {
-            p0 = x_index ^ (1 << (num_vars - 1));
-            p1 = x_index;
-        }
-
-        queries.push((oracle[p0].clone(), oracle[p1].clone()));
-        x_index = min(p0, p1);
-        num_vars -= 1;
+        queries.push(&oracle[x_index ^ 1]);
+        x_index >>= 1;
     }
 
     return queries;
+}
+
+fn authenticate_merkle_path_mmcs<H: Hash, F: PrimeField>(
+    path: &Vec<&Output<H>>,
+    openings: &Vec<F>,
+    mut x_index: usize,
+    num_vars: usize,
+    root: &Output<H>,
+) {
+    let mut obj;
+    let mut hasher = H::new();
+
+    hasher.update_field_element(&openings[0]);
+    obj = hasher.finalize_fixed();
+
+    let mut hasher = H::new();
+    hasher.update(&Output::<H>::default());
+    let default_hash = hasher.finalize_fixed();
+
+    let mut i = 0;
+    while i < num_vars {
+        let mut hasher = H::new();
+        if x_index & 1 == 0 {
+            hasher.update(&obj);
+            hasher.update(path[i]);
+        } else {
+            hasher.update(path[i]);
+            hasher.update(&obj);
+        }
+        obj = hasher.finalize_fixed();
+
+        if i < openings.len() - 1 {
+            let mut hasher = H::new();
+            hasher.update_field_element(&openings[i + 1]);
+            let lh = hasher.finalize_fixed();
+
+            let mut hasher = H::new();
+            hasher.update(&obj);
+            hasher.update(&lh);
+            obj = hasher.finalize_fixed();
+        } else {
+            let mut hasher = H::new();
+            hasher.update(&obj);
+            hasher.update(&default_hash);
+            obj = hasher.finalize_fixed();
+        }
+
+        x_index >>= 1;
+        i += 1;
+    }
+
+    assert_eq!(&obj, root);
 }
 
 fn merkelize<F: PrimeField, H: Hash>(values: &Vec<F>) -> Vec<Vec<Output<H>>> {
@@ -799,7 +834,7 @@ fn merkelize<F: PrimeField, H: Hash>(values: &Vec<F>) -> Vec<Vec<Output<H>>> {
     let mut tree = Vec::with_capacity(log_v);
     let mut hashes = vec![Output::<H>::default(); (values.len() >> 1)];
     let method1 = Instant::now();
-    hashes.iter_mut().enumerate().for_each(|(i, mut hash)| {
+    hashes.par_iter_mut().enumerate().for_each(|(i, mut hash)| {
         let mut hasher = H::new();
         hasher.update_field_element(&values[i + i]);
         hasher.update_field_element(&values[i + i + 1]);
@@ -811,7 +846,7 @@ fn merkelize<F: PrimeField, H: Hash>(values: &Vec<F>) -> Vec<Vec<Output<H>>> {
     let now = Instant::now();
     for i in 1..(log_v) {
         let oracle = tree[i - 1]
-            .chunks_exact(2)
+            .par_chunks_exact(2)
             .map(|ys| {
                 let mut hasher = H::new();
                 let mut hash = Output::<H>::default();
@@ -829,27 +864,25 @@ fn merkelize<F: PrimeField, H: Hash>(values: &Vec<F>) -> Vec<Vec<Output<H>>> {
 fn get_merkle_path<H: Hash, F: PrimeField>(
     tree: &Vec<Vec<Output<H>>>,
     mut x_index: usize,
-    mut num_vars: usize,
     root: bool,
-) -> Vec<Output<H>> {
+) -> Vec<Vec<Output<H>>> {
     let mut queries = Vec::with_capacity(tree.len());
+    x_index >>= 1;
     for oracle in tree {
-        if oracle.len() == 1 {
-            if root {
-                queries.push(oracle[0].clone());
+        let mut p0 = x_index;
+        let mut p1 = x_index ^ 1;
+        if (p1 < p0) {
+            p0 = x_index ^ 1;
+            p1 = x_index;
+        }
+        if (oracle.len() == 1) {
+            if (root) {
+                queries.push(vec![oracle[0].clone(), oracle[0].clone()]);
             }
             break;
         }
-        let mut p0 = x_index;
-        let mut p1 = x_index ^ (1 << (num_vars - 1));
-        if (p1 < p0) {
-            p0 = x_index ^ (1 << (num_vars - 1));
-            p1 = x_index;
-        }
-
-        queries.push(oracle[x_index ^ (1 << (num_vars - 1))].clone());
-        x_index = min(p0, p1);
-        num_vars -= 1;
+        queries.push(vec![oracle[p0].clone(), oracle[p1].clone()]);
+        x_index >>= 1;
     }
 
     return queries;
@@ -885,4 +918,30 @@ fn authenticate_merkle_path_root<H: Hash, F: PrimeField>(
     hasher.update(&path[path.len() - 1][1]);
     hasher.finalize_into_reset(&mut hash);
     assert_eq!(&hash, root);
+}
+
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_merkelize() {
+        let num_vars = 3;
+        let values = (0..(1 << num_vars)).map(|i| Val::from(i)).collect_vec();
+        let tree = merkelize::<Val, Blake2s>(&values);
+
+        let idx = 3;
+        let path = get_merkle_path::<Blake2s, Val>(&tree, idx, false);
+        let mut p0 = idx;
+        let mut p1 = idx ^ 1;
+        if p1 < p0 {
+            p0 = idx ^ 1;
+            p1 = idx;
+        }
+        authenticate_merkle_path_root::<Blake2s, Val>(
+            &path,
+            (values[p0], values[p1]),
+            idx,
+            &tree[num_vars - 1][0],
+        );
+    }
 }
