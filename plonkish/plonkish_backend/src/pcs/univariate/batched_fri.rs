@@ -415,7 +415,7 @@ where
         let mut merkle_paths = Vec::with_capacity(query_num);
         for (cur_path, indices, _ros) in query_paths.clone() {
             let mut cur_query_paths = Vec::with_capacity(num_vars);
-            for (i, (tree, idx)) in trees.iter().zip(indices.iter().skip(1)).enumerate() {
+            for (i, (tree, idx)) in trees.iter().zip(indices.iter()).enumerate() {
                 let path: Vec<([u8; 32], [u8; 32])> = get_merkle_path::<H, Val>(tree, *idx, false)
                     .par_iter()
                     .map(|v| {
@@ -573,6 +573,23 @@ where
 
                 evals[q_copy & 1] = folded;
 
+                let leaves = (evals[0], evals[1]);
+
+                authenticate_merkle_path_root::<H, Val>(
+                    &mps[i]
+                        .iter()
+                        .map(|v| {
+                            vec![
+                                Output::<H>::from_slice(&v.0).clone(),
+                                Output::<H>::from_slice(&v.1).clone(),
+                            ]
+                        })
+                        .collect_vec(),
+                    leaves,
+                    q_copy,
+                    Output::<H>::from_slice(&intermediate_oracles[i]),
+                );
+
                 if sibling < q_copy {
                     q_copy = sibling;
                 }
@@ -683,9 +700,9 @@ fn merkelize_mmcs<F: PrimeField, H: Hash>(values: &Vec<Vec<F>>) -> Vec<Vec<Outpu
     let mut tree = Vec::with_capacity(log_v);
 
     let values: Vec<Vec<Output<H>>> = values
-        .iter()
+        .par_iter()
         .map(|v| {
-            v.iter()
+            v.par_iter()
                 .map(|f| {
                     let mut hasher = H::new();
                     hasher.update_field_element(f);
@@ -715,7 +732,7 @@ fn merkelize_mmcs<F: PrimeField, H: Hash>(values: &Vec<Vec<F>>) -> Vec<Vec<Outpu
                 .iter()
                 .zip(values[idx].iter())
                 .collect_vec()
-                .iter()
+                .par_iter()
                 .map(|(hash, value)| {
                     let mut hasher = H::new();
                     hasher.update(hash);
@@ -745,14 +762,14 @@ fn merkelize_mmcs<F: PrimeField, H: Hash>(values: &Vec<Vec<F>>) -> Vec<Vec<Outpu
             })
             .collect();
         oracle = oracle
-            .iter()
+            .par_iter()
             .map(|o| {
                 let mut hasher = H::new();
                 hasher.update(o);
                 hasher.update(&default_hash);
                 hasher.finalize_fixed()
             })
-            .collect_vec();
+            .collect();
         tree.push(oracle);
         i += 1;
     }
