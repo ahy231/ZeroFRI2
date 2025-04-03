@@ -688,16 +688,19 @@ where
         points: &[Point<F, Self::Polynomial>],
         evals: &[Evaluation<F>],
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
-    ) -> Result<(), crate::Error>
-    where
-        Self::Polynomial: 'a,
-        Self::Commitment: 'a,
-    {
-        use itertools::izip;
-        for (poly, comm, point, eval) in izip!(polys, comms, points, evals) {
-            // Assuming Evaluation<F> is a tuple struct (e.g., pub struct Evaluation<F>(pub F);),
-            // we pass a reference to the inner field.
-            Self::open(pp, poly, comm, point, &eval.value, transcript)?;
+    ) -> Result<(), Error> {
+        let polys: Vec<_> = polys.into_iter().collect();
+        let comms: Vec<_> = comms.into_iter().collect();
+
+        for eval in evals {
+            Self::open(
+                pp,
+                polys[eval.poly()],
+                comms[eval.poly()],
+                &points[eval.point()],
+                &eval.value(),
+                transcript,
+            )?;
         }
         Ok(())
     }

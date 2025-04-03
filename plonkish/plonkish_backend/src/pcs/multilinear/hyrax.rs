@@ -263,11 +263,22 @@ where
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
         points: &[Point<C::Scalar, Self::Polynomial>],
         evals: &[Evaluation<C::Scalar>],
-        transcript: &mut impl TranscriptWrite<C, C::Scalar>,
+        transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, C::Scalar>,
     ) -> Result<(), Error> {
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
-        additive::batch_open::<_, Self>(pp, pp.num_vars(), polys, comms, points, evals, transcript)
+
+        for eval in evals {
+            Self::open(
+                pp,
+                polys[eval.poly()],
+                comms[eval.poly()],
+                &points[eval.point()],
+                &eval.value(),
+                transcript,
+            )?;
+        }
+        Ok(())
     }
 
     fn read_commitments(
@@ -308,6 +319,17 @@ where
         MultilinearIpa::verify(&vp.ipa, &comm, &lo.to_vec(), eval, transcript)
     }
 
+    // fn batch_verify<'a>(
+    //     vp: &Self::VerifierParam,
+    //     comms: impl IntoIterator<Item = &'a Self::Commitment>,
+    //     points: &[Point<C::Scalar, Self::Polynomial>],
+    //     evals: &[Evaluation<C::Scalar>],
+    //     transcript: &mut impl TranscriptRead<C, C::Scalar>,
+    // ) -> Result<(), Error> {
+    //     let comms = comms.into_iter().collect_vec();
+    //     additive::batch_verify::<_, Self>(vp, vp.num_vars(), comms, points, evals, transcript)
+    // }
+
     fn batch_verify<'a>(
         vp: &Self::VerifierParam,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
@@ -316,7 +338,16 @@ where
         transcript: &mut impl TranscriptRead<C, C::Scalar>,
     ) -> Result<(), Error> {
         let comms = comms.into_iter().collect_vec();
-        additive::batch_verify::<_, Self>(vp, vp.num_vars(), comms, points, evals, transcript)
+        for eval in evals {
+            Self::verify(
+                vp,
+                comms[eval.poly()],
+                &points[eval.point()],
+                eval.value(),
+                transcript,
+            )?;
+        }
+        Ok(())
     }
 }
 

@@ -351,6 +351,7 @@ where
     /// # Returns
     /// * `Ok(())` on success, meaning the proofs for all polynomials have been written to `transcript`.
     /// * An error if anything goes wrong (e.g., dimension mismatches, invalid parameters).
+
     fn batch_open<'a>(
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
@@ -358,32 +359,21 @@ where
         points: &[Point<M::Scalar, Self::Polynomial>],
         evals: &[Evaluation<M::Scalar>],
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, M::Scalar>,
-    ) -> Result<(), Error>
-    where
-        Self::Commitment: 'a,
-    {
-        // Convert the incoming iterator of polynomials into a concrete Vec for easier handling.
+    ) -> Result<(), Error> {
         let polys = polys.into_iter().collect_vec();
-
-        // Convert the incoming iterator of commitments into a concrete Vec as well.
         let comms = comms.into_iter().collect_vec();
 
-        // Determine how many variables each polynomial has by looking at the first point's length.
-        // If `points` is empty, default to zero variables.
-        let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
-
-        // Delegate to `additive::batch_open`, passing in:
-        // - The prover parameters `pp`
-        // - The number of variables `num_vars`
-        // - The polynomials `polys`
-        // - Their corresponding commitments `comms`
-        // - The list of points to evaluate at
-        // - The claimed evaluations
-        // - The transcript
-        //
-        // `additive::batch_open` handles the actual multi-polynomial batch
-        // opening logic under the hood (e.g., folding, generating proofs, etc.).
-        additive::batch_open::<_, Self>(pp, num_vars, polys, comms, points, evals, transcript)
+        for eval in evals {
+            Self::open(
+                pp,
+                polys[eval.poly()],
+                comms[eval.poly()],
+                &points[eval.point()],
+                &eval.value(),
+                transcript,
+            )?;
+        }
+        Ok(())
     }
 
     /// Reads (deserializes) multiple polynomial commitments from the transcript.
@@ -551,6 +541,24 @@ where
     /// # Returns
     /// * `Ok(())` on success, meaning all polynomials' evaluations have been verified.
     /// * An error if verification fails or an inconsistency is found.
+    // fn batch_verify<'a>(
+    //     vp: &Self::VerifierParam,
+    //     comms: impl IntoIterator<Item = &'a Self::Commitment>,
+    //     points: &[Point<M::Scalar, Self::Polynomial>],
+    //     evals: &[Evaluation<M::Scalar>],
+    //     transcript: &mut impl TranscriptRead<Self::CommitmentChunk, M::Scalar>,
+    // ) -> Result<(), Error> {
+    //     // Determine how many variables from the first 'point' or default to 0 if no points.
+    //     let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
+
+    //     // Collect the commitments into a vector (rather than an iterator).
+    //     let comms = comms.into_iter().collect_vec();
+
+    //     // Delegate to `additive::batch_verify`, presumably an internal helper that checks
+    //     // multiple polynomial evaluations in an additive or multi-polynomial context.
+    //     additive::batch_verify::<_, Self>(vp, num_vars, comms, points, evals, transcript)
+    // }
+
     fn batch_verify<'a>(
         vp: &Self::VerifierParam,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
@@ -558,15 +566,17 @@ where
         evals: &[Evaluation<M::Scalar>],
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, M::Scalar>,
     ) -> Result<(), Error> {
-        // Determine how many variables from the first 'point' or default to 0 if no points.
-        let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
-
-        // Collect the commitments into a vector (rather than an iterator).
         let comms = comms.into_iter().collect_vec();
-
-        // Delegate to `additive::batch_verify`, presumably an internal helper that checks
-        // multiple polynomial evaluations in an additive or multi-polynomial context.
-        additive::batch_verify::<_, Self>(vp, num_vars, comms, points, evals, transcript)
+        for eval in evals {
+            Self::verify(
+                vp,
+                comms[eval.poly()],
+                &points[eval.point()],
+                eval.value(),
+                transcript,
+            )?;
+        }
+        Ok(())
     }
 }
 

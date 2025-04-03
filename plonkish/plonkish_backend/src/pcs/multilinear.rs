@@ -16,7 +16,6 @@ mod kzg;
 pub mod virgo;
 mod zeromorph;
 mod zeromorph_fri;
-pub mod zeromorph_fri_v2;
 pub mod zeromorph_fri_v3;
 pub use basefold::{
     evaluate_over_foldable_domain, interpolate_over_boolean_hypercube_with_copy, Basefold,
@@ -35,7 +34,6 @@ pub use kzg::{
 };
 pub use zeromorph::{Zeromorph, ZeromorphKzgProverParam, ZeromorphKzgVerifierParam};
 pub use zeromorph_fri::{ZeromorphFri, ZeromorphFriProverParam, ZeromorphFriVerifierParam};
-pub use zeromorph_fri_v2::ZeromorphFri as ZeromorphFriV2;
 pub use zeromorph_fri_v3::ZeromorphFri as ZeromorphFriV3;
 fn validate_input<'a, F: Field>(
     function: &str,

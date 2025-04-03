@@ -9,6 +9,7 @@ pub enum Field {
     Goldilocks,
     Mersenne61,
     Bn254Fr,
+    FFBn254Fr,
     Bn256Fq,
     Mersenne127,
     GoldilocksMont,

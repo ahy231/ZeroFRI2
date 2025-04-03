@@ -45,6 +45,7 @@ use sha2::digest::{Output, OutputSizeUser};
 use std::cmp::min;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Mutex;
 use std::time::Instant;
 
 type Val = MyFr;
@@ -62,8 +63,11 @@ type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
 type Dft = Radix2DitParallel<Val>;
 type Challenger = SerializingChallenger32<Val, HashChallenger<u8, ByteHash, 32>>;
 
+const MAX_POLYS: usize = 1000;
+
 pub static mut table_static: Option<Vec<Vec<Val>>> = None;
-pub static mut commitment: Option<Vec<Vec<[u8; 32]>>> = None;
+pub static mut commitment: [Option<Vec<Vec<[u8; 32]>>>; MAX_POLYS] = [const { None }; MAX_POLYS];
+pub static mut comms_map: Option<HashMap<MyFr, usize>> = None;
 
 pub static mut log_blowup: usize = 0;
 pub static mut log_final_poly_len: usize = 0;
@@ -71,14 +75,20 @@ pub static mut num_queries: usize = 0;
 pub static mut proof_of_work_bits: usize = 0;
 pub static mut degree_bound: usize = 0;
 
-pub static mut query_paths_static: Option<Vec<(Vec<Challenge>, Vec<usize>, Vec<Val>)>> = None;
-pub static mut merkle_paths_static: Option<Vec<Vec<Vec<([u8; 32], [u8; 32])>>>> = None;
-pub static mut first_merkle_paths_static: Option<Vec<Vec<[u8; 32]>>> = None;
-pub static mut intermediate_oracles_static: Option<Vec<[u8; 32]>> = None;
-pub static mut final_value_static: Option<Challenge> = None;
-pub static mut first_oracle_static: Option<[u8; 32]> = None;
+pub static mut query_paths_static: [Option<Vec<(Vec<Challenge>, Vec<usize>, Vec<Val>)>>;
+    MAX_POLYS] = [const { None }; MAX_POLYS];
+pub static mut merkle_paths_static: [Option<Vec<Vec<Vec<([u8; 32], [u8; 32])>>>>; MAX_POLYS] =
+    [const { None }; MAX_POLYS];
+pub static mut first_merkle_paths_static: [Option<Vec<Vec<[u8; 32]>>>; MAX_POLYS] =
+    [const { None }; MAX_POLYS];
+pub static mut intermediate_oracles_static: [Option<Vec<[u8; 32]>>; MAX_POLYS] =
+    [const { None }; MAX_POLYS];
+pub static mut final_value_static: [Option<Challenge>; MAX_POLYS] = [const { None }; MAX_POLYS];
+pub static mut first_oracle_static: [Option<[u8; 32]>; MAX_POLYS] = [const { None }; MAX_POLYS];
 
 pub static mut ldes: Option<HashMap<Vec<Val>, Vec<Val>>> = None;
+
+pub static mut max_idx: Mutex<usize> = Mutex::new(0);
 
 #[derive(Debug, Clone, Copy)]
 pub struct BatchedFri<F, H> {
@@ -88,6 +98,7 @@ pub struct BatchedFri<F, H> {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(bound(serialize = "F: Serialize", deserialize = "F: DeserializeOwned"))]
 pub struct BatchedFriCommitment<F, H> {
+    idx: usize,
     phantom: PhantomData<(F, H)>,
 }
 
@@ -154,6 +165,9 @@ where
             proof_of_work_bits = 0;
             ldes = Some(HashMap::new());
             table_static = Some(table);
+            if comms_map.is_none() {
+                comms_map = Some(HashMap::new());
+            }
         }
 
         Ok(())
@@ -222,12 +236,15 @@ where
             })
             .collect();
 
+        let mut idx = unsafe { max_idx.lock().unwrap() };
+        *idx += 1;
         unsafe {
             degree_bound = polys.into_iter().next().unwrap().coeffs().len();
-            commitment = Some(comm);
+            commitment[*idx - 1] = Some(comm);
         };
 
         Ok(vec![BatchedFriCommitment {
+            idx: *idx - 1,
             phantom: PhantomData,
         }])
     }
@@ -262,7 +279,8 @@ where
         Self::Polynomial: 'a,
         Self::Commitment: 'a,
     {
-        let comm_original = unsafe { commitment.clone().unwrap() };
+        let idx = comms.into_iter().next().unwrap().idx;
+        let comm_original = unsafe { commitment[idx].clone().unwrap() };
         let comm: Vec<Vec<Output<H>>> = comm_original
             .iter()
             .map(|c| {
@@ -409,6 +427,12 @@ where
                     a
                 })
                 .collect();
+            // println!(
+            //     "prover comm: {:?}, fmp: {:?}, query: {:?}",
+            //     Output::<H>::from_slice(&comm.iter().last().unwrap()[0]),
+            //     mmcs_proof,
+            //     q
+            // );
             first_merkle_paths.push(mmcs_proof);
         }
 
@@ -443,7 +467,7 @@ where
         }
 
         for mp in merkle_paths.iter() {
-            transcript.write_field_elements(vec![&Val::TWO; mp.len()]);
+            transcript.write_field_elements(vec![&Val::TWO; mp.len() * 2]);
         }
 
         for fp in first_merkle_paths.iter() {
@@ -457,15 +481,31 @@ where
         transcript.write_field_element(&Val::TWO); // write comm
 
         unsafe {
-            query_paths_static = Some(query_paths);
-            merkle_paths_static = Some(merkle_paths);
-            first_merkle_paths_static = Some(first_merkle_paths);
-            intermediate_oracles_static = Some(comms);
-            final_value_static = Some(folded[0]);
-            first_oracle_static = Some(comm_original.iter().last().unwrap()[0]);
+            query_paths_static[idx] = Some(query_paths);
+            merkle_paths_static[idx] = Some(merkle_paths);
+            first_merkle_paths_static[idx] = Some(first_merkle_paths);
+            intermediate_oracles_static[idx] = Some(comms);
+            final_value_static[idx] = Some(folded[0]);
+            first_oracle_static[idx] = Some(comm_original.iter().last().unwrap()[0]);
         }
 
         Ok(())
+    }
+
+    fn batch_commit_and_write<'a>(
+        pp: &Self::ProverParam,
+        polys: impl IntoIterator<Item = &'a Self::Polynomial>,
+        transcript: &mut impl crate::util::transcript::TranscriptWrite<Self::CommitmentChunk, Val>,
+    ) -> Result<Vec<Self::Commitment>, crate::Error>
+    where
+        Self::Polynomial: 'a,
+    {
+        let comms = Self::batch_commit(pp, polys)?;
+        let r = transcript.squeeze_challenge();
+        unsafe {
+            comms_map.as_mut().unwrap().insert(r, comms[0].idx);
+        }
+        Ok(comms)
     }
 
     fn read_commitments(
@@ -473,7 +513,10 @@ where
         num_polys: usize,
         transcript: &mut impl crate::util::transcript::TranscriptRead<Self::CommitmentChunk, Val>,
     ) -> Result<Vec<Self::Commitment>, crate::Error> {
+        let r = transcript.squeeze_challenge();
+        let idx = unsafe { comms_map.as_ref().unwrap().get(&r).unwrap() };
         Ok(vec![BatchedFriCommitment {
+            idx: *idx,
             phantom: PhantomData,
         }])
     }
@@ -504,6 +547,7 @@ where
     where
         Self::Commitment: 'a,
     {
+        let idx = comms.into_iter().next().unwrap().idx;
         let degree_bound_ = unsafe { degree_bound };
         let num_queries_ = unsafe { num_queries };
         let log_blowup_ = unsafe { log_blowup };
@@ -516,16 +560,15 @@ where
         for layer in table.iter_mut() {
             reverse_index_bits_in_place(layer);
         }
-        let first_oracle = unsafe { first_oracle_static.clone().unwrap() };
-        let intermediate_oracles = unsafe { intermediate_oracles_static.clone().unwrap() };
-        let final_value = unsafe { final_value_static.unwrap() };
-        let query_paths = unsafe { query_paths_static.clone().unwrap() };
-        let merkle_paths = unsafe { merkle_paths_static.clone().unwrap() };
-        let first_merkle_paths = unsafe { first_merkle_paths_static.clone().unwrap() };
+        let first_oracle = unsafe { first_oracle_static[idx].clone().unwrap() };
+        let intermediate_oracles = unsafe { intermediate_oracles_static[idx].clone().unwrap() };
+        let final_value = unsafe { final_value_static[idx].clone().unwrap() };
+        let query_paths = unsafe { query_paths_static[idx].clone().unwrap() };
+        let merkle_paths = unsafe { merkle_paths_static[idx].clone().unwrap() };
+        let first_merkle_paths = unsafe { first_merkle_paths_static[idx].clone().unwrap() };
 
         let lambda = transcript.squeeze_challenge();
         let mut fold_challenges = Vec::with_capacity(log_degree_bound);
-
         for i in 0..log_degree_bound + 1 {
             fold_challenges.push(transcript.squeeze_challenge());
             // let _oracle = transcript.read_field_element();
@@ -549,12 +592,14 @@ where
             let mut folded = <Val as ff::Field>::ZERO;
 
             let fmp_vec = fmp.iter().map(|v| Output::<H>::from_slice(v)).collect_vec();
+            let comm = Output::<H>::from_slice(&first_oracle);
+            // println!("verifier comm: {:?}, fmp: {:?}, query: {:?}", comm, fmp, q);
             authenticate_merkle_path_mmcs::<H, Val>(
                 &fmp_vec,
                 &reduced_openings,
                 q,
                 log_evals,
-                Output::<H>::from_slice(&first_oracle),
+                &comm,
             );
 
             let mut q_copy = q;
@@ -611,12 +656,7 @@ where
         }
 
         for mp in merkle_paths.iter() {
-            for tree in mp.iter() {
-                for (e0, e1) in tree.iter() {
-                    transcript.read_field_elements(e0.len());
-                    transcript.read_field_elements(e1.len());
-                }
-            }
+            transcript.read_field_elements(mp.len() * 2);
         }
 
         for fp in first_merkle_paths.iter() {
@@ -625,7 +665,7 @@ where
             }
         }
 
-        transcript.read_field_elements(log_degree_bound);
+        transcript.read_field_elements(log_degree_bound + 1);
 
         transcript.read_field_element();
         transcript.read_field_element();

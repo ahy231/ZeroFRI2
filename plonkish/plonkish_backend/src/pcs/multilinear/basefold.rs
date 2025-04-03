@@ -403,196 +403,220 @@ where
         evals: &[Evaluation<F>],
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
-        use std::env;
-
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
 
-        validate_input("batch open", pp.num_vars, polys.clone(), points)?;
-        for comm in &comms {
-            transcript.write_commitment(&comm.as_ref());
+        for eval in evals {
+            Self::open(
+                pp,
+                polys[eval.poly()],
+                comms[eval.poly()],
+                &points[eval.point()],
+                &eval.value(),
+                transcript,
+            )?;
         }
-        let ell = evals.len().next_power_of_two().ilog2() as usize;
-        let t = transcript.squeeze_challenges(ell);
-
-        let eq_xt = MultilinearPolynomial::eq_xy(&t);
-        let merged_polys = evals.iter().zip(eq_xt.evals().iter()).fold(
-            vec![(F::ONE, Cow::<MultilinearPolynomial<_>>::default()); points.len()],
-            |mut merged_polys, (eval, eq_xt_i)| {
-                if merged_polys[eval.point()].1.is_zero() {
-                    merged_polys[eval.point()] = (*eq_xt_i, Cow::Borrowed(polys[eval.poly()]));
-                } else {
-                    let coeff = merged_polys[eval.point()].0;
-                    if coeff != F::ONE {
-                        merged_polys[eval.point()].0 = F::ONE;
-                        *merged_polys[eval.point()].1.to_mut() *= &coeff;
-                    }
-                    *merged_polys[eval.point()].1.to_mut() += (eq_xt_i, polys[eval.poly()]);
-                }
-                merged_polys
-            },
-        );
-
-        let unique_merged_polys = merged_polys
-            .iter()
-            .unique_by(|(_, poly)| addr_of!(*poly.deref()))
-            .collect_vec();
-        let unique_merged_poly_indices = unique_merged_polys
-            .iter()
-            .enumerate()
-            .map(|(idx, (_, poly))| (addr_of!(*poly.deref()), idx))
-            .collect::<HashMap<_, _>>();
-        let expression = merged_polys
-            .iter()
-            .enumerate()
-            .map(|(idx, (scalar, poly))| {
-                let poly = unique_merged_poly_indices[&addr_of!(*poly.deref())];
-                Expression::<F>::eq_xy(idx)
-                    * Expression::Polynomial(Query::new(poly, Rotation::cur()))
-                    * scalar
-            })
-            .sum();
-        let virtual_poly = VirtualPolynomial::new(
-            &expression,
-            unique_merged_polys.iter().map(|(_, poly)| poly.deref()),
-            &[],
-            points,
-        );
-        let tilde_gs_sum =
-            inner_product(evals.iter().map(Evaluation::value), &eq_xt[..evals.len()]);
-        let now = Instant::now();
-        let (challenges, _) =
-            SumCheck::prove(&(), pp.num_vars, virtual_poly, tilde_gs_sum, transcript)?;
-
-        let eq_xy_evals = points
-            .iter()
-            .map(|point| eq_xy_eval(&challenges, point))
-            .collect_vec();
-        let g_prime = merged_polys
-            .into_iter()
-            .zip(eq_xy_evals.iter())
-            .map(|((scalar, poly), eq_xy_eval)| (scalar * eq_xy_eval, poly.into_owned()))
-            .sum::<MultilinearPolynomial<_>>();
-
-        let (mut comm, eval) = if cfg!(feature = "sanity-check") {
-            let scalars = evals
-                .iter()
-                .zip(eq_xt.evals())
-                .map(|(eval, eq_xt_i)| eq_xy_evals[eval.point()] * eq_xt_i)
-                .collect_vec();
-            let bases = evals.iter().map(|eval| comms[eval.poly()]);
-            let now = Instant::now();
-            let comm = Self::Commitment::sum_with_scalar(&scalars, bases);
-
-            (comm, g_prime.evaluate(&challenges))
-        } else {
-            (Self::Commitment::default(), F::ZERO)
-        };
-        let mut bh_evals = g_prime.evals().to_vec();
-
-        //convert to type 1
-        reverse_index_bits_in_place(&mut bh_evals);
-
-        comm.bh_evals = Type1Polynomial { poly: bh_evals };
-        let point = challenges;
-
-        let (trees, sum_check_oracles, mut oracles, bh_evals, eq, eval) = commit_phase(
-            &point,
-            &comm,
-            transcript,
-            pp.num_vars,
-            pp.num_rounds,
-            &pp.table_w_weights,
-        );
-
-        if pp.num_rounds < pp.num_vars {
-            transcript.write_field_elements(&bh_evals.poly);
-            transcript.write_field_elements(&eq.poly);
-        }
-
-        let (queried_els, queries_usize) =
-            query_phase(transcript, &comm, &oracles, pp.num_verifier_queries);
-
-        let mut individual_queries: Vec<Vec<(F, F)>> = Vec::with_capacity(queries_usize.len());
-
-        let mut individual_paths: Vec<Vec<Vec<(Output<H>, Output<H>)>>> =
-            Vec::with_capacity(queries_usize.len());
-        for query in &queries_usize {
-            let mut comm_queries = Vec::with_capacity(evals.len());
-            let mut comm_paths = Vec::with_capacity(evals.len());
-            for eval in evals {
-                let c = comms[eval.poly()];
-                let res = query_codeword::<F, H>(query, &c.codeword.poly, &c.codeword_tree);
-                comm_queries.push(res.0);
-                comm_paths.push(res.1);
-            }
-
-            individual_queries.push(comm_queries);
-            individual_paths.push(comm_paths);
-        }
-
-        let merkle_paths: Vec<Vec<Vec<(Output<H>, Output<H>)>>> = queried_els
-            .iter()
-            .map(|query| {
-                let indices = &query.1;
-                indices
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, q)| {
-                        if (i == 0) {
-                            return get_merkle_path::<H, F>(&comm.codeword_tree, *q, false);
-                        } else {
-                            return get_merkle_path::<H, F>(&trees[i - 1], *q, false);
-                        }
-                    })
-                    .collect()
-            })
-            .collect();
-
-        // a proof consists of roots, merkle paths, query paths, sum check oracles, eval, and final oracle
-        //write individual commitment queries for batching
-        //queries for batch
-        individual_queries.iter().flatten().for_each(|(f1, f2)| {
-            transcript.write_field_element(f1).unwrap();
-            transcript.write_field_element(f2).unwrap();
-        });
-        //paths for batch
-        individual_paths
-            .iter()
-            .flatten()
-            .flatten()
-            .for_each(|(h1, h2)| {
-                transcript.write_commitment(h1);
-                transcript.write_commitment(h2);
-            });
-
-        //write sum check oracles
-
-        //write eval
-        transcript.write_field_element(&eval);
-        //write final oracle
-        transcript.write_field_elements(oracles.pop().unwrap().poly.iter().collect_vec());
-        //write query paths
-        queried_els
-            .iter()
-            .map(|q| &q.0)
-            .flatten()
-            .for_each(|query| {
-                transcript.write_field_element(&query.0);
-                transcript.write_field_element(&query.1);
-            });
-        //write merkle paths
-        merkle_paths
-            .iter()
-            .flatten()
-            .flatten()
-            .for_each(|(h1, h2)| {
-                transcript.write_commitment(h1);
-                transcript.write_commitment(h2);
-            });
-
         Ok(())
     }
+
+    // fn batch_open<'a>(
+    //     pp: &Self::ProverParam,
+    //     polys: impl IntoIterator<Item = &'a Self::Polynomial>,
+    //     comms: impl IntoIterator<Item = &'a Self::Commitment>,
+    //     points: &[Point<F, Self::Polynomial>],
+    //     evals: &[Evaluation<F>],
+    //     transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+    // ) -> Result<(), Error> {
+    //     use std::env;
+
+    //     let polys = polys.into_iter().collect_vec();
+    //     let comms = comms.into_iter().collect_vec();
+
+    //     validate_input("batch open", pp.num_vars, polys.clone(), points)?;
+    //     for comm in &comms {
+    //         transcript.write_commitment(&comm.as_ref());
+    //     }
+    //     let ell = evals.len().next_power_of_two().ilog2() as usize;
+    //     let t = transcript.squeeze_challenges(ell);
+
+    //     let eq_xt = MultilinearPolynomial::eq_xy(&t);
+    //     let merged_polys = evals.iter().zip(eq_xt.evals().iter()).fold(
+    //         vec![(F::ONE, Cow::<MultilinearPolynomial<_>>::default()); points.len()],
+    //         |mut merged_polys, (eval, eq_xt_i)| {
+    //             if merged_polys[eval.point()].1.is_zero() {
+    //                 merged_polys[eval.point()] = (*eq_xt_i, Cow::Borrowed(polys[eval.poly()]));
+    //             } else {
+    //                 let coeff = merged_polys[eval.point()].0;
+    //                 if coeff != F::ONE {
+    //                     merged_polys[eval.point()].0 = F::ONE;
+    //                     *merged_polys[eval.point()].1.to_mut() *= &coeff;
+    //                 }
+    //                 *merged_polys[eval.point()].1.to_mut() += (eq_xt_i, polys[eval.poly()]);
+    //             }
+    //             merged_polys
+    //         },
+    //     );
+
+    //     let unique_merged_polys = merged_polys
+    //         .iter()
+    //         .unique_by(|(_, poly)| addr_of!(*poly.deref()))
+    //         .collect_vec();
+    //     let unique_merged_poly_indices = unique_merged_polys
+    //         .iter()
+    //         .enumerate()
+    //         .map(|(idx, (_, poly))| (addr_of!(*poly.deref()), idx))
+    //         .collect::<HashMap<_, _>>();
+    //     let expression = merged_polys
+    //         .iter()
+    //         .enumerate()
+    //         .map(|(idx, (scalar, poly))| {
+    //             let poly = unique_merged_poly_indices[&addr_of!(*poly.deref())];
+    //             Expression::<F>::eq_xy(idx)
+    //                 * Expression::Polynomial(Query::new(poly, Rotation::cur()))
+    //                 * scalar
+    //         })
+    //         .sum();
+    //     let virtual_poly = VirtualPolynomial::new(
+    //         &expression,
+    //         unique_merged_polys.iter().map(|(_, poly)| poly.deref()),
+    //         &[],
+    //         points,
+    //     );
+    //     let tilde_gs_sum =
+    //         inner_product(evals.iter().map(Evaluation::value), &eq_xt[..evals.len()]);
+    //     let now = Instant::now();
+    //     let (challenges, _) =
+    //         SumCheck::prove(&(), pp.num_vars, virtual_poly, tilde_gs_sum, transcript)?;
+
+    //     let eq_xy_evals = points
+    //         .iter()
+    //         .map(|point| eq_xy_eval(&challenges, point))
+    //         .collect_vec();
+    //     let g_prime = merged_polys
+    //         .into_iter()
+    //         .zip(eq_xy_evals.iter())
+    //         .map(|((scalar, poly), eq_xy_eval)| (scalar * eq_xy_eval, poly.into_owned()))
+    //         .sum::<MultilinearPolynomial<_>>();
+
+    //     let (mut comm, eval) = if cfg!(feature = "sanity-check") {
+    //         let scalars = evals
+    //             .iter()
+    //             .zip(eq_xt.evals())
+    //             .map(|(eval, eq_xt_i)| eq_xy_evals[eval.point()] * eq_xt_i)
+    //             .collect_vec();
+    //         let bases = evals.iter().map(|eval| comms[eval.poly()]);
+    //         let now = Instant::now();
+    //         let comm = Self::Commitment::sum_with_scalar(&scalars, bases);
+
+    //         (comm, g_prime.evaluate(&challenges))
+    //     } else {
+    //         (Self::Commitment::default(), F::ZERO)
+    //     };
+    //     let mut bh_evals = g_prime.evals().to_vec();
+
+    //     //convert to type 1
+    //     reverse_index_bits_in_place(&mut bh_evals);
+
+    //     comm.bh_evals = Type1Polynomial { poly: bh_evals };
+    //     let point = challenges;
+
+    //     let (trees, sum_check_oracles, mut oracles, bh_evals, eq, eval) = commit_phase(
+    //         &point,
+    //         &comm,
+    //         transcript,
+    //         pp.num_vars,
+    //         pp.num_rounds,
+    //         &pp.table_w_weights,
+    //     );
+
+    //     if pp.num_rounds < pp.num_vars {
+    //         transcript.write_field_elements(&bh_evals.poly);
+    //         transcript.write_field_elements(&eq.poly);
+    //     }
+
+    //     let (queried_els, queries_usize) =
+    //         query_phase(transcript, &comm, &oracles, pp.num_verifier_queries);
+
+    //     let mut individual_queries: Vec<Vec<(F, F)>> = Vec::with_capacity(queries_usize.len());
+
+    //     let mut individual_paths: Vec<Vec<Vec<(Output<H>, Output<H>)>>> =
+    //         Vec::with_capacity(queries_usize.len());
+    //     for query in &queries_usize {
+    //         let mut comm_queries = Vec::with_capacity(evals.len());
+    //         let mut comm_paths = Vec::with_capacity(evals.len());
+    //         for eval in evals {
+    //             let c = comms[eval.poly()];
+    //             let res = query_codeword::<F, H>(query, &c.codeword.poly, &c.codeword_tree);
+    //             comm_queries.push(res.0);
+    //             comm_paths.push(res.1);
+    //         }
+
+    //         individual_queries.push(comm_queries);
+    //         individual_paths.push(comm_paths);
+    //     }
+
+    //     let merkle_paths: Vec<Vec<Vec<(Output<H>, Output<H>)>>> = queried_els
+    //         .iter()
+    //         .map(|query| {
+    //             let indices = &query.1;
+    //             indices
+    //                 .into_iter()
+    //                 .enumerate()
+    //                 .map(|(i, q)| {
+    //                     if (i == 0) {
+    //                         return get_merkle_path::<H, F>(&comm.codeword_tree, *q, false);
+    //                     } else {
+    //                         return get_merkle_path::<H, F>(&trees[i - 1], *q, false);
+    //                     }
+    //                 })
+    //                 .collect()
+    //         })
+    //         .collect();
+
+    //     // a proof consists of roots, merkle paths, query paths, sum check oracles, eval, and final oracle
+    //     //write individual commitment queries for batching
+    //     //queries for batch
+    //     individual_queries.iter().flatten().for_each(|(f1, f2)| {
+    //         transcript.write_field_element(f1).unwrap();
+    //         transcript.write_field_element(f2).unwrap();
+    //     });
+    //     //paths for batch
+    //     individual_paths
+    //         .iter()
+    //         .flatten()
+    //         .flatten()
+    //         .for_each(|(h1, h2)| {
+    //             transcript.write_commitment(h1);
+    //             transcript.write_commitment(h2);
+    //         });
+
+    //     //write sum check oracles
+
+    //     //write eval
+    //     transcript.write_field_element(&eval);
+    //     //write final oracle
+    //     transcript.write_field_elements(oracles.pop().unwrap().poly.iter().collect_vec());
+    //     //write query paths
+    //     queried_els
+    //         .iter()
+    //         .map(|q| &q.0)
+    //         .flatten()
+    //         .for_each(|query| {
+    //             transcript.write_field_element(&query.0);
+    //             transcript.write_field_element(&query.1);
+    //         });
+    //     //write merkle paths
+    //     merkle_paths
+    //         .iter()
+    //         .flatten()
+    //         .flatten()
+    //         .for_each(|(h1, h2)| {
+    //             transcript.write_commitment(h1);
+    //             transcript.write_commitment(h2);
+    //         });
+
+    //     Ok(())
+    // }
 
     fn read_commitments(
         _: &Self::VerifierParam,
@@ -754,210 +778,227 @@ where
         evals: &[Evaluation<F>],
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
-        use std::env;
-
         let comms = comms.into_iter().collect_vec();
-        validate_input("batch verify", vp.num_vars, [], points)?;
-        transcript.read_commitments(comms.len());
-
-        let ell = evals.len().next_power_of_two().ilog2() as usize;
-
-        let t = transcript.squeeze_challenges(ell);
-
-        let eq_xt = MultilinearPolynomial::eq_xy(&t);
-        let tilde_gs_sum =
-            inner_product(evals.iter().map(Evaluation::value), &eq_xt[..evals.len()]);
-
-        let (g_prime_eval, verify_point) =
-            SumCheck::verify(&(), vp.num_vars, 2, tilde_gs_sum, transcript)?;
-
-        let eq_xy_evals = points
-            .iter()
-            .map(|point| eq_xy_eval(&verify_point, point))
-            .collect_vec();
-
-        //start of verify
-        let n = (1 << (vp.num_vars + vp.log_rate));
-        //read first $(num_var - 1) commitments
-        let mut roots: Vec<Output<H>> = Vec::with_capacity(vp.num_rounds + 1);
-        let mut fold_challenges: Vec<F> = Vec::with_capacity(vp.num_rounds);
-        let mut sum_check_oracles = Vec::new();
-        for i in 0..vp.num_rounds {
-            roots.push(transcript.read_commitment().unwrap());
-            sum_check_oracles.push(transcript.read_field_elements(3).unwrap());
-            fold_challenges.push(transcript.squeeze_challenge());
-        }
-        sum_check_oracles.push(transcript.read_field_elements(3).unwrap());
-        let mut bh_evals = Vec::new();
-        let mut eq = Vec::new();
-        if vp.num_rounds < vp.num_vars {
-            bh_evals = transcript
-                .read_field_elements(1 << (vp.num_vars - vp.num_rounds))
-                .unwrap();
-            eq = transcript
-                .read_field_elements(1 << (vp.num_vars - vp.num_rounds))
-                .unwrap();
-        }
-
-        let mut query_challenges = transcript.squeeze_challenges(vp.num_verifier_queries);
-
-        let mut ind_queries = Vec::with_capacity(vp.num_verifier_queries);
-        let mut count = 0;
-        for i in 0..vp.num_verifier_queries {
-            let mut comms_queries = Vec::with_capacity(evals.len());
-            for j in 0..evals.len() {
-                let queries = transcript.read_field_elements(2).unwrap();
-
-                comms_queries.push(queries);
-            }
-
-            ind_queries.push(comms_queries);
-        }
-
-        //read merkle paths
-        let mut batch_paths = Vec::with_capacity(vp.num_verifier_queries);
-        let mut count = 0;
-        for i in 0..vp.num_verifier_queries {
-            let mut comms_merkle_paths = Vec::with_capacity(evals.len());
-            for j in 0..evals.len() {
-                let merkle_path = transcript
-                    .read_commitments(2 * (vp.num_vars + vp.log_rate))
-                    .unwrap();
-                let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
-
-                comms_merkle_paths.push(chunked_path);
-            }
-
-            batch_paths.push(comms_merkle_paths);
-        }
-
-        let mut count = 0;
-
-        //read eval
-        let eval = transcript.read_field_element().unwrap();
-
-        //read final oracle
-        let mut final_oracle = transcript
-            .read_field_elements(1 << (vp.num_vars - vp.num_rounds + vp.log_rate))
-            .unwrap();
-
-        //read query paths
-        let num_queries = vp.num_verifier_queries * 2 * (vp.num_rounds + 1);
-
-        let all_qs = transcript.read_field_elements(num_queries).unwrap();
-
-        let i_qs = all_qs.chunks((vp.num_rounds + 1) * 2).collect_vec();
-
-        assert_eq!(i_qs.len(), vp.num_verifier_queries);
-
-        let mut queries = i_qs.iter().map(|q| q.chunks(2).collect_vec()).collect_vec();
-
-        assert_eq!(queries[0][0].len(), 2);
-
-        let scalars = evals
-            .iter()
-            .zip(eq_xt.evals())
-            .map(|(eval, eq_xt_i)| eq_xy_evals[eval.point()] * eq_xt_i)
-            .collect_vec();
-
-        for (i, query) in queries.iter().enumerate() {
-            let mut lc0 = F::ZERO;
-            let mut lc1 = F::ZERO;
-            for j in 0..scalars.len() {
-                lc0 += scalars[j] * ind_queries[i][j][0];
-                lc1 += scalars[j] * ind_queries[i][j][1];
-            }
-            assert_eq!(query[0][0], lc0);
-            assert_eq!(query[0][1], lc1);
-        }
-
-        //start regular verify on the proof in transcript
-
-        let mut query_merkle_paths: Vec<Vec<Vec<Vec<Output<H>>>>> =
-            Vec::with_capacity(vp.num_verifier_queries);
-        for i in 0..vp.num_verifier_queries {
-            let mut merkle_paths: Vec<Vec<Vec<Output<H>>>> = Vec::with_capacity(vp.num_rounds + 1);
-            for round in 0..(vp.num_rounds + 1) {
-                let merkle_path: Vec<Output<H>> = transcript
-                    .read_commitments(2 * (vp.num_vars - round + vp.log_rate - 1)) //-1 because we already read roots
-                    .unwrap();
-                let chunked_path: Vec<Vec<Output<H>>> =
-                    merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
-
-                merkle_paths.push(chunked_path);
-            }
-            query_merkle_paths.push(merkle_paths);
-        }
-
-        let queries_usize = verifier_query_phase::<F, H>(
-            &query_challenges,
-            &query_merkle_paths,
-            &sum_check_oracles,
-            &fold_challenges,
-            &queries,
-            vp.num_rounds,
-            vp.num_vars,
-            vp.log_rate,
-            &roots,
-            vp.rng.clone(),
-            &eval,
-        );
-
-        for vq in 0..vp.num_verifier_queries {
-            for cq in 0..ind_queries[vq].len() {
-                let tree = &comms[evals[cq].poly].codeword_tree;
-                assert_eq!(
-                    tree[tree.len() - 1][0],
-                    batch_paths[vq][cq].pop().unwrap().pop().unwrap()
-                );
-
-                authenticate_merkle_path::<H, F>(
-                    &batch_paths[vq][cq],
-                    (ind_queries[vq][cq][0], ind_queries[vq][cq][1]),
-                    queries_usize[vq],
-                );
-
-                count += 1;
-            }
-        }
-        let mut next_oracle = Type1Polynomial { poly: final_oracle };
-        let mut bh_evals = Type1Polynomial { poly: bh_evals };
-        let mut eq = Type1Polynomial { poly: eq };
-        if (!vp.rs_basecode) {
-            virtual_open(
-                vp.num_vars,
-                vp.num_rounds,
-                &mut eq,
-                &mut bh_evals,
-                &mut next_oracle,
-                &verify_point,
-                &mut fold_challenges,
-                &vp.table_w_weights,
-                &mut sum_check_oracles,
-            );
-        } else {
-            one_level_reverse_interp_hc(&mut bh_evals);
-            reverse_index_bits_in_place(&mut bh_evals.poly); //convert to type2
-            let (mut new_coeffs, _) =
-                interpolate_over_boolean_hypercube_with_copy(&Type2Polynomial {
-                    poly: bh_evals.poly,
-                });
-
-            let rs = encode_rs_basecode(
-                &new_coeffs,
-                1 << vp.log_rate,
-                1 << (vp.num_vars - vp.num_rounds),
-            );
-            reverse_index_bits_in_place(&mut next_oracle.poly); //convert to type2
-            assert_eq!(
-                rs,
-                Type2Polynomial {
-                    poly: next_oracle.poly
-                }
-            );
+        for eval in evals {
+            let comm = &comms[eval.poly()];
+            let point = &points[eval.poly()];
+            let eval = eval.value();
+            Self::verify(vp, comm, point, eval, transcript)?;
         }
         Ok(())
     }
+
+    //     fn batch_verify<'a>(
+    //         vp: &Self::VerifierParam,
+    //         comms: impl IntoIterator<Item = &'a Self::Commitment>,
+    //         points: &[Point<F, Self::Polynomial>],
+    //         evals: &[Evaluation<F>],
+    //         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+    //     ) -> Result<(), Error> {
+    //         use std::env;
+
+    //         let comms = comms.into_iter().collect_vec();
+    //         validate_input("batch verify", vp.num_vars, [], points)?;
+    //         transcript.read_commitments(comms.len());
+
+    //         let ell = evals.len().next_power_of_two().ilog2() as usize;
+
+    //         let t = transcript.squeeze_challenges(ell);
+
+    //         let eq_xt = MultilinearPolynomial::eq_xy(&t);
+    //         let tilde_gs_sum =
+    //             inner_product(evals.iter().map(Evaluation::value), &eq_xt[..evals.len()]);
+
+    //         let (g_prime_eval, verify_point) =
+    //             SumCheck::verify(&(), vp.num_vars, 2, tilde_gs_sum, transcript)?;
+
+    //         let eq_xy_evals = points
+    //             .iter()
+    //             .map(|point| eq_xy_eval(&verify_point, point))
+    //             .collect_vec();
+
+    //         //start of verify
+    //         let n = (1 << (vp.num_vars + vp.log_rate));
+    //         //read first $(num_var - 1) commitments
+    //         let mut roots: Vec<Output<H>> = Vec::with_capacity(vp.num_rounds + 1);
+    //         let mut fold_challenges: Vec<F> = Vec::with_capacity(vp.num_rounds);
+    //         let mut sum_check_oracles = Vec::new();
+    //         for i in 0..vp.num_rounds {
+    //             roots.push(transcript.read_commitment().unwrap());
+    //             sum_check_oracles.push(transcript.read_field_elements(3).unwrap());
+    //             fold_challenges.push(transcript.squeeze_challenge());
+    //         }
+    //         sum_check_oracles.push(transcript.read_field_elements(3).unwrap());
+    //         let mut bh_evals = Vec::new();
+    //         let mut eq = Vec::new();
+    //         if vp.num_rounds < vp.num_vars {
+    //             bh_evals = transcript
+    //                 .read_field_elements(1 << (vp.num_vars - vp.num_rounds))
+    //                 .unwrap();
+    //             eq = transcript
+    //                 .read_field_elements(1 << (vp.num_vars - vp.num_rounds))
+    //                 .unwrap();
+    //         }
+
+    //         let mut query_challenges = transcript.squeeze_challenges(vp.num_verifier_queries);
+
+    //         let mut ind_queries = Vec::with_capacity(vp.num_verifier_queries);
+    //         let mut count = 0;
+    //         for i in 0..vp.num_verifier_queries {
+    //             let mut comms_queries = Vec::with_capacity(evals.len());
+    //             for j in 0..evals.len() {
+    //                 let queries = transcript.read_field_elements(2).unwrap();
+
+    //                 comms_queries.push(queries);
+    //             }
+
+    //             ind_queries.push(comms_queries);
+    //         }
+
+    //         //read merkle paths
+    //         let mut batch_paths = Vec::with_capacity(vp.num_verifier_queries);
+    //         let mut count = 0;
+    //         for i in 0..vp.num_verifier_queries {
+    //             let mut comms_merkle_paths = Vec::with_capacity(evals.len());
+    //             for j in 0..evals.len() {
+    //                 let merkle_path = transcript
+    //                     .read_commitments(2 * (vp.num_vars + vp.log_rate))
+    //                     .unwrap();
+    //                 let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+
+    //                 comms_merkle_paths.push(chunked_path);
+    //             }
+
+    //             batch_paths.push(comms_merkle_paths);
+    //         }
+
+    //         let mut count = 0;
+
+    //         //read eval
+    //         let eval = transcript.read_field_element().unwrap();
+
+    //         //read final oracle
+    //         let mut final_oracle = transcript
+    //             .read_field_elements(1 << (vp.num_vars - vp.num_rounds + vp.log_rate))
+    //             .unwrap();
+
+    //         //read query paths
+    //         let num_queries = vp.num_verifier_queries * 2 * (vp.num_rounds + 1);
+
+    //         let all_qs = transcript.read_field_elements(num_queries).unwrap();
+
+    //         let i_qs = all_qs.chunks((vp.num_rounds + 1) * 2).collect_vec();
+
+    //         assert_eq!(i_qs.len(), vp.num_verifier_queries);
+
+    //         let mut queries = i_qs.iter().map(|q| q.chunks(2).collect_vec()).collect_vec();
+
+    //         assert_eq!(queries[0][0].len(), 2);
+
+    //         let scalars = evals
+    //             .iter()
+    //             .zip(eq_xt.evals())
+    //             .map(|(eval, eq_xt_i)| eq_xy_evals[eval.point()] * eq_xt_i)
+    //             .collect_vec();
+
+    //         for (i, query) in queries.iter().enumerate() {
+    //             let mut lc0 = F::ZERO;
+    //             let mut lc1 = F::ZERO;
+    //             for j in 0..scalars.len() {
+    //                 lc0 += scalars[j] * ind_queries[i][j][0];
+    //                 lc1 += scalars[j] * ind_queries[i][j][1];
+    //             }
+    //             assert_eq!(query[0][0], lc0);
+    //             assert_eq!(query[0][1], lc1);
+    //         }
+
+    //         //start regular verify on the proof in transcript
+
+    //         let mut query_merkle_paths: Vec<Vec<Vec<Vec<Output<H>>>>> =
+    //             Vec::with_capacity(vp.num_verifier_queries);
+    //         for i in 0..vp.num_verifier_queries {
+    //             let mut merkle_paths: Vec<Vec<Vec<Output<H>>>> = Vec::with_capacity(vp.num_rounds + 1);
+    //             for round in 0..(vp.num_rounds + 1) {
+    //                 let merkle_path: Vec<Output<H>> = transcript
+    //                     .read_commitments(2 * (vp.num_vars - round + vp.log_rate - 1)) //-1 because we already read roots
+    //                     .unwrap();
+    //                 let chunked_path: Vec<Vec<Output<H>>> =
+    //                     merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
+
+    //                 merkle_paths.push(chunked_path);
+    //             }
+    //             query_merkle_paths.push(merkle_paths);
+    //         }
+
+    //         let queries_usize = verifier_query_phase::<F, H>(
+    //             &query_challenges,
+    //             &query_merkle_paths,
+    //             &sum_check_oracles,
+    //             &fold_challenges,
+    //             &queries,
+    //             vp.num_rounds,
+    //             vp.num_vars,
+    //             vp.log_rate,
+    //             &roots,
+    //             vp.rng.clone(),
+    //             &eval,
+    //         );
+
+    //         for vq in 0..vp.num_verifier_queries {
+    //             for cq in 0..ind_queries[vq].len() {
+    //                 let tree = &comms[evals[cq].poly].codeword_tree;
+    //                 assert_eq!(
+    //                     tree[tree.len() - 1][0],
+    //                     batch_paths[vq][cq].pop().unwrap().pop().unwrap()
+    //                 );
+
+    //                 authenticate_merkle_path::<H, F>(
+    //                     &batch_paths[vq][cq],
+    //                     (ind_queries[vq][cq][0], ind_queries[vq][cq][1]),
+    //                     queries_usize[vq],
+    //                 );
+
+    //                 count += 1;
+    //             }
+    //         }
+    //         let mut next_oracle = Type1Polynomial { poly: final_oracle };
+    //         let mut bh_evals = Type1Polynomial { poly: bh_evals };
+    //         let mut eq = Type1Polynomial { poly: eq };
+    //         if (!vp.rs_basecode) {
+    //             virtual_open(
+    //                 vp.num_vars,
+    //                 vp.num_rounds,
+    //                 &mut eq,
+    //                 &mut bh_evals,
+    //                 &mut next_oracle,
+    //                 &verify_point,
+    //                 &mut fold_challenges,
+    //                 &vp.table_w_weights,
+    //                 &mut sum_check_oracles,
+    //             );
+    //         } else {
+    //             one_level_reverse_interp_hc(&mut bh_evals);
+    //             reverse_index_bits_in_place(&mut bh_evals.poly); //convert to type2
+    //             let (mut new_coeffs, _) =
+    //                 interpolate_over_boolean_hypercube_with_copy(&Type2Polynomial {
+    //                     poly: bh_evals.poly,
+    //                 });
+
+    //             let rs = encode_rs_basecode(
+    //                 &new_coeffs,
+    //                 1 << vp.log_rate,
+    //                 1 << (vp.num_vars - vp.num_rounds),
+    //             );
+    //             reverse_index_bits_in_place(&mut next_oracle.poly); //convert to type2
+    //             assert_eq!(
+    //                 rs,
+    //                 Type2Polynomial {
+    //                     poly: next_oracle.poly
+    //                 }
+    //             );
+    //         }
+    //         Ok(())
+    //     }
 }
 
 #[test]
@@ -1442,8 +1483,6 @@ fn time_sumcheck() {
     let mut eq = build_eq_x_r_vec::<Mersenne127>(&point).unwrap();
     let now = Instant::now();
     (0..60).into_par_iter().for_each(|x| {
-
-
         let oracles = sum_check(evals.clone(), point.clone(), i, i, eq.clone());
     });
     println!("now.elased() {:?}", now.elapsed());

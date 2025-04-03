@@ -70,7 +70,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 
 [features]
-default = ["timer"]
+default = []
 timer = [
     "plonkish_backend/timer",
     "halo2_proofs/print-trace",
@@ -85,12 +85,12 @@ timer = [
 # [[bench]]
 # name = "zeromorph_fri_proof_system"
 # harness = false
-# [[bench]]
-# name = "gemini_proof_system"
-# harness = false
-# [[bench]]
-# name = "basefold_proof_system"
-# harness = false
+[[bench]]
+name = "gemini_proof_system"
+harness = false
+[[bench]]
+name = "basefold_proof_system"
+harness = false
 # [[bench]]
 # name = "hyrax_proof_system"
 # harness = false

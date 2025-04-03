@@ -33,7 +33,7 @@ use plonkish_backend::pcs::mock_pcs::PcsOps;
 use plonkish_backend::pcs::multilinear::deepfold::Deepfold;
 use plonkish_backend::pcs::multilinear::{
     interpolate_over_boolean_hypercube_with_copy, Basefold, Gemini, MultilinearBrakedown,
-    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFriV2, ZeromorphFriV3,
+    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFriV3,
 };
 use plonkish_backend::pcs::univariate::UnivariateKzg;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
@@ -801,7 +801,7 @@ impl System {
                 bench_pcs::<Mersenne61Mont, Deepfold, Blake2sTranscript<_>>(self, k)
             }
             System::ZeromorphFriV2 => {
-                bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
+                unimplemented!();
             }
             System::Virgo => {
                 unimplemented!("Virgo is not implemented for mock proof system")

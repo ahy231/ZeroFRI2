@@ -4,8 +4,6 @@
 //! to fit [`PolynomialCommitmentScheme`].
 //!
 //! [GLSTW21]: https://eprint.iacr.org/2021/1043.pdf
-use rayon::iter::IntoParallelRefIterator;
-use rayon::iter::ParallelIterator;
 use crate::{
     pcs::{multilinear::validate_input, Evaluation, Point, PolynomialCommitmentScheme},
     poly::{multilinear::MultilinearPolynomial, Polynomial},
@@ -20,8 +18,10 @@ use crate::{
     Error,
 };
 use rand::RngCore;
-use std::{borrow::Cow, marker::PhantomData, mem::size_of, slice,env};
+use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::ParallelIterator;
 use std::time::Instant;
+use std::{borrow::Cow, env, marker::PhantomData, mem::size_of, slice};
 
 #[derive(Debug)]
 pub struct MultilinearBrakedown<F: PrimeField, H: Hash, S: BrakedownSpec>(PhantomData<(F, H, S)>);
@@ -62,7 +62,6 @@ pub struct MultilinearBrakedownCommitment<F, H: Hash> {
 }
 
 impl<F: PrimeField, H: Hash> MultilinearBrakedownCommitment<F, H> {
-
     fn from_root(root: Output<H>) -> Self {
         Self {
             root,
@@ -138,7 +137,7 @@ where
         let mut rows = vec![F::ZERO; pp.num_rows * codeword_len];
 
         // encode rows
-	let encoding_time = Instant::now();
+        let encoding_time = Instant::now();
         let chunk_size = div_ceil(pp.num_rows, num_threads());
         parallelize_iter(
             rows.chunks_exact_mut(chunk_size * codeword_len)
@@ -154,12 +153,12 @@ where
             },
         );
 
-	let now = Instant::now();	
+        let now = Instant::now();
 
         // hash columns
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
 
-	let new_n = Instant::now();
+        let new_n = Instant::now();
         let mut hashes = vec![Output::<H>::default(); (2 << depth) - 1];
 
         parallelize(&mut hashes[..codeword_len], |(hashes, start)| {
@@ -173,12 +172,11 @@ where
             }
         });
 
-
         // merklize column hashes
         let mut offset = 0;
         for width in (1..=depth).rev().map(|depth| 1 << depth) {
             let (input, output) = hashes[offset..].split_at_mut(width);
-//	    let num_threads = env::var("RAYON_NUM_THREADS").unwrap();
+            //	    let num_threads = env::var("RAYON_NUM_THREADS").unwrap();
             let chunk_size = div_ceil(output.len(), num_threads());
             parallelize_iter(
                 input
@@ -192,7 +190,6 @@ where
                         hasher.update(&input[1]);
                         hasher.finalize_into_reset(output);
                     }
-
                 },
             );
             offset += width;
@@ -218,7 +215,7 @@ where
     where
         Self::Polynomial: 'a,
     {
-	let polys_vec: Vec<&Self::Polynomial> = polys.into_iter().map(|poly| {poly}).collect();	
+        let polys_vec: Vec<&Self::Polynomial> = polys.into_iter().map(|poly| poly).collect();
         polys_vec
             .par_iter()
             .map(|poly| Self::commit(pp, poly))
@@ -293,7 +290,6 @@ where
         Ok(())
     }
 
-    // TODO: Apply 2022/1355
     fn batch_open<'a>(
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
@@ -302,23 +298,48 @@ where
         evals: &[Evaluation<F>],
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
-//	use std::env;
-//	let key = "RAYON_NUM_THREADS";
-//	env::set_var(key, "8");    
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
+
         for eval in evals {
             Self::open(
                 pp,
                 polys[eval.poly()],
                 comms[eval.poly()],
                 &points[eval.point()],
-                eval.value(),
+                &eval.value(),
                 transcript,
             )?;
         }
         Ok(())
     }
+
+    //     // TODO: Apply 2022/1355
+    //     fn batch_open<'a>(
+    //         pp: &Self::ProverParam,
+    //         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
+    //         comms: impl IntoIterator<Item = &'a Self::Commitment>,
+    //         points: &[Point<F, Self::Polynomial>],
+    //         evals: &[Evaluation<F>],
+    //         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+    //     ) -> Result<(), Error> {
+    // //	use std::env;
+    // //	let key = "RAYON_NUM_THREADS";
+    // //	env::set_var(key, "8");
+    //         let polys = polys.into_iter().collect_vec();
+    //         let comms = comms.into_iter().collect_vec();
+    //         for eval in evals {
+    //             Self::open(
+    //                 pp,
+    //                 polys[eval.poly()],
+    //                 comms[eval.poly()],
+    //                 &points[eval.point()],
+    //                 eval.value(),
+    //                 transcript,
+    //             )?;
+    //         }
+    //         Ok(())
+    //     }
 
     fn read_commitments(
         _: &Self::VerifierParam,
@@ -385,7 +406,6 @@ where
             let mut output = {
                 for item in items.iter() {
                     hasher.update_field_element(item);
-
                 }
 
                 hasher.finalize_fixed_reset()
@@ -460,18 +480,24 @@ fn squeeze_challenge_idx<F: PrimeField>(
 
 #[cfg(test)]
 mod test {
+    use crate::util::hash::Blake2s;
+    use crate::util::transcript::{
+        Blake2sTranscript, FieldTranscript, FieldTranscriptRead, FieldTranscriptWrite,
+        InMemoryTranscript, TranscriptRead, TranscriptWrite,
+    };
     use crate::{
         pcs::multilinear::{
             brakedown::MultilinearBrakedown,
             test::{run_batch_commit_open_verify, run_commit_open_verify},
         },
-        util::{code::BrakedownSpec6, hash::{Keccak256,Output,Hash}, transcript::Keccak256Transcript},
+        util::{
+            code::BrakedownSpec6,
+            hash::{Hash, Keccak256, Output},
+            transcript::Keccak256Transcript,
+        },
     };
-    use halo2_curves::{ff::Field,bn256::Fr};
-    use crate::util::transcript::{InMemoryTranscript,FieldTranscriptRead,FieldTranscriptWrite,FieldTranscript,TranscriptWrite,TranscriptRead,Blake2sTranscript};
-    use crate::util::hash::Blake2s;
-    use std::{io};
-
+    use halo2_curves::{bn256::Fr, ff::Field};
+    use std::io;
 
     type Pcs = MultilinearBrakedown<Fr, Blake2s, BrakedownSpec6>;
 
@@ -480,104 +506,99 @@ mod test {
         run_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
     }
 
-//    #[test]
+    //    #[test]
     fn batch_commit_open_verify() {
         run_batch_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
     }
 
-    fn hash_helper<H:Hash,T:TranscriptRead<Output<H>, Fr>
+    fn hash_helper<
+        H: Hash,
+        T: TranscriptRead<Output<H>, Fr>
             + TranscriptWrite<Output<H>, Fr>
-            + InMemoryTranscript<Param = ()>>(){
+            + InMemoryTranscript<Param = ()>,
+    >() {
+        let mut hasher = H::new();
+        let mut hash = Output::<H>::default();
+        hasher.update_field_element(&Fr::ONE);
+        hasher.finalize_into_reset(&mut hash);
 
-	let mut hasher = H::new();
-	let mut hash = Output::<H>::default();
-	hasher.update_field_element(&Fr::ONE);
-	hasher.finalize_into_reset(&mut hash);
+        let mut hasher = H::new();
+        let mut hash2 = Output::<H>::default();
+        hasher.update_field_element(&Fr::ZERO);
+        hasher.finalize_into_reset(&mut hash2);
 
-	let mut hasher = H::new();
-	let mut hash2 = Output::<H>::default();
-	hasher.update_field_element(&Fr::ZERO);
-	hasher.finalize_into_reset(&mut hash2);
-	
-	
-	let mut transcript = T::new(());
-	transcript.write_commitments(&vec![hash,hash2]).unwrap();
- 
-	let proof = transcript.into_proof();
+        let mut transcript = T::new(());
+        transcript.write_commitments(&vec![hash, hash2]).unwrap();
 
-	let mut new_transcript = T::from_proof((),proof.as_slice());
-	
-	let hash:Output<H> = new_transcript.read_commitment().unwrap();
-	let hash2:Output<H> = new_transcript.read_commitment().unwrap();
+        let proof = transcript.into_proof();
 
-	let mut hasher = H::new();
-	let mut new_hash = Output::<H>::default();
-	hasher.update_field_element(&Fr::ONE);
-	hasher.finalize_into_reset(&mut new_hash);
+        let mut new_transcript = T::from_proof((), proof.as_slice());
 
-	assert_eq!(new_hash,hash);
+        let hash: Output<H> = new_transcript.read_commitment().unwrap();
+        let hash2: Output<H> = new_transcript.read_commitment().unwrap();
 
+        let mut hasher = H::new();
+        let mut new_hash = Output::<H>::default();
+        hasher.update_field_element(&Fr::ONE);
+        hasher.finalize_into_reset(&mut new_hash);
 
-	let mut hasher = H::new();
-	let mut new_hash2 = Output::<H>::default();
-	hasher.update_field_element(&Fr::ZERO);
-	hasher.finalize_into_reset(&mut new_hash2);
+        assert_eq!(new_hash, hash);
 
-	assert_eq!(new_hash2,hash2);	
+        let mut hasher = H::new();
+        let mut new_hash2 = Output::<H>::default();
+        hasher.update_field_element(&Fr::ZERO);
+        hasher.finalize_into_reset(&mut new_hash2);
 
+        assert_eq!(new_hash2, hash2);
     }
 
-//    #[test]
-    fn test_transcript_hash(){
-	hash_helper::<Keccak256,Keccak256Transcript<io::Cursor<Vec<u8>>>>();
+    //    #[test]
+    fn test_transcript_hash() {
+        hash_helper::<Keccak256, Keccak256Transcript<io::Cursor<Vec<u8>>>>();
     }
 
-//    #[test]
-    fn test_transcript_field(){
-	let mut transcript = Keccak256Transcript::new(());
-	transcript.write_field_elements(&vec![Fr::ONE,Fr::ZERO]).unwrap();
+    //    #[test]
+    fn test_transcript_field() {
+        let mut transcript = Keccak256Transcript::new(());
+        transcript
+            .write_field_elements(&vec![Fr::ONE, Fr::ZERO])
+            .unwrap();
 
-	let proof = transcript.into_proof();
+        let proof = transcript.into_proof();
 
-	let mut new_transcript = Keccak256Transcript::from_proof((),proof.as_slice());
+        let mut new_transcript = Keccak256Transcript::from_proof((), proof.as_slice());
 
-	let el:Fr = new_transcript.read_field_element().unwrap();
-	let point:Fr = new_transcript.squeeze_challenge();	
-	assert_eq!(el,Fr::ONE);
+        let el: Fr = new_transcript.read_field_element().unwrap();
+        let point: Fr = new_transcript.squeeze_challenge();
+        assert_eq!(el, Fr::ONE);
 
-	let el2:Fr = new_transcript.read_field_element().unwrap();
-	assert_eq!(el2, Fr::ZERO);
+        let el2: Fr = new_transcript.read_field_element().unwrap();
+        assert_eq!(el2, Fr::ZERO);
 
+        //new transcript is now empty
 
-	//new transcript is now empty
+        let mut newnew_transcript = Keccak256Transcript::new(());
+        newnew_transcript.write_field_element(&Fr::ONE).unwrap();
+        let newpoint = newnew_transcript.squeeze_challenge();
+        newnew_transcript.write_field_element(&Fr::ZERO).unwrap();
 
-	let mut newnew_transcript = Keccak256Transcript::new(());
-	newnew_transcript.write_field_element(&Fr::ONE).unwrap();
-	let newpoint = newnew_transcript.squeeze_challenge();		
-	newnew_transcript.write_field_element(&Fr::ZERO).unwrap();
+        assert_eq!(point, newpoint);
 
-	assert_eq!(point,newpoint);
+        //newnew transcript is now empty
 
-	//newnew transcript is now empty
+        new_transcript.write_field_element(&Fr::ONE).unwrap();
 
+        let test1: Fr = new_transcript.squeeze_challenge();
 
+        newnew_transcript.write_field_element(&Fr::ONE).unwrap();
+        let test2: Fr = newnew_transcript.squeeze_challenge();
 
-	new_transcript.write_field_element(&Fr::ONE).unwrap();
+        assert_eq!(test1, test2);
 
+        let another_squeeze: Fr = newnew_transcript.squeeze_challenge();
 
+        let anothernother_squeeze: Fr = new_transcript.squeeze_challenge();
 
-	let test1:Fr = new_transcript.squeeze_challenge();
-
-	newnew_transcript.write_field_element(&Fr::ONE).unwrap();
-	let test2:Fr = newnew_transcript.squeeze_challenge();
-
-	assert_eq!(test1,test2);
-
-	let another_squeeze:Fr = newnew_transcript.squeeze_challenge();
-
-	let anothernother_squeeze:Fr = new_transcript.squeeze_challenge();
-
-	assert_eq!(another_squeeze,anothernother_squeeze);
-
+        assert_eq!(another_squeeze, anothernother_squeeze);
     }
 }

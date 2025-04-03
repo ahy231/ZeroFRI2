@@ -484,7 +484,6 @@ where
         _batch_size: usize,
         _rng: impl RngCore,
     ) -> Result<Self::Param, Error> {
-        
         let num_vars = poly_size.trailing_zeros() as usize;
 
         // total_round is defined to be the number of variables.
