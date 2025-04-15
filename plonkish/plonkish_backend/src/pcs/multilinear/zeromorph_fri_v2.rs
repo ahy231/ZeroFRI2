@@ -136,7 +136,7 @@ where
 
         let (quotients, remainder) = quotients(poly, point, |_, q| UnivariatePolynomial::new(q));
         let quotients_rscoded: Vec<_> = quotients
-            .iter()
+            .par_iter()
             .map(|q| {
                 let q_coeffs = q.coeffs().to_vec();
                 let mut new_coeffs = vec![<F as ff::Field>::ZERO; 1 << num_vars];
@@ -256,10 +256,9 @@ where
             .chunks(vp.vp.num_rounds * 2)
             .map(|chunk| {
                 chunk
-                    .iter()
-                    .collect_vec()
+                    .to_vec()
                     .chunks(2)
-                    .map(|chunk| chunk.iter().map(|x| **x).collect())
+                    .map(|chunk| chunk.to_vec())
                     .collect()
             })
             .collect();
@@ -288,10 +287,9 @@ where
             .chunks((q_comms.len() + 1) * 2)
             .map(|chunk| {
                 chunk
-                    .iter()
-                    .collect_vec()
+                    .to_vec()
                     .chunks(2)
-                    .map(|chunk| chunk.iter().map(|x| **x).collect())
+                    .map(|chunk| chunk.to_vec())
                     .collect()
             })
             .collect();
@@ -306,15 +304,13 @@ where
             .chunks((q_comms.len() + 1) * (vp.vp.num_rounds + vp.vp.log_rate) * 2)
             .map(|chunk| {
                 chunk
-                    .iter()
-                    .collect_vec()
+                    .to_vec()
                     .chunks((vp.vp.num_rounds + vp.vp.log_rate) * 2)
                     .map(|chunk| {
                         chunk
-                            .iter()
-                            .collect_vec()
+                            .to_vec()
                             .chunks(2)
-                            .map(|chunk| chunk.iter().map(|x| (**x).clone()).collect())
+                            .map(|chunk| chunk.to_vec())
                             .collect()
                     })
                     .collect()
@@ -693,8 +689,8 @@ pub fn open_helper<H: Hash>(
     //construct evaluation codeword
     let num_vars = pp.num_vars;
     assert_eq!(num_vars, qs.len());
-    let mut denominator = Vec::new();
-    let mut numerator = Vec::new();
+    let mut denominator = vec![<F as ff::Field>::ZERO; 1 << (num_vars + pp.log_rate)];
+    let mut numerator = vec![<F as ff::Field>::ZERO; 1 << (num_vars + pp.log_rate)];
     let last_level = &pp.table_w_weights[pp.table_w_weights.len() - 1];
     let dft = p3_dft::Radix2Dit::default();
 
@@ -861,23 +857,22 @@ pub fn open_helper<H: Hash>(
         reverse_index_bits_in_place(&mut test_slice);
     }
 
-    let mut d_pointer = 0;
     let mut rbo_g = g.clone();
     reverse_index_bits_in_place(&mut rbo_g);
-    for j in 0..(1 << (num_vars + pp.log_rate)) {
-        let mut x: F = last_level[d_pointer].0;
-        if j % 2 != 0 {
-            d_pointer = d_pointer + 1;
-            x = -x;
+    parallelize(&mut denominator, |(denominator, start)| {
+        for (i, d) in denominator.iter_mut().enumerate() {
+            let mut x: F = last_level[(start + i) / 2].0;
+            if (start + i) % 2 != 0 {
+                x = -x;
+            }
+            *d = x - point;
         }
-        // assert_eq!(
-        //     x, test_slice[j],
-        //     "j {:?}, x {:?}, test_slice[j] {:?}",
-        //     j, x, test_slice[j]
-        // );
-        denominator.push(x - point);
-        numerator.push(rbo_g[j] - eval);
-    }
+    });
+    parallelize(&mut numerator, |(numerator, start)| {
+        for (i, n) in numerator.iter_mut().enumerate() {
+            *n = rbo_g[start + i] - eval;
+        }
+    });
 
     if cfg!(feature = "sanity-check") {
         let mut numerator_cp = numerator.clone();
@@ -966,7 +961,9 @@ pub fn open_helper<H: Hash>(
         let indices = &query.1;
         indices.into_iter().enumerate().for_each(|(i, q)| {
             let root = trees[i][trees[i].len() - 1][0].clone();
-            println!("write merkle path q {:?}, root {:?}", q, root);
+            if cfg!(feature = "sanity-check") {
+                println!("write merkle path q {:?}, root {:?}", q, root);
+            }
             write_merkle_path::<H, F>(&trees[i], *q, transcript);
         })
     });
