@@ -38,6 +38,8 @@ use p3_symmetric::{
 };
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use rayon::iter::IntoParallelIterator;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::{any::type_name, collections::HashMap, iter, ops::Deref, time::Instant};
 
 use plonky2_util::{reverse_bits, reverse_index_bits_in_place};
@@ -67,31 +69,25 @@ type Dft = Radix2DitParallel<Val>;
 type Challenger = SerializingChallenger32<Val, HashChallenger<u8, ByteHash, 32>>;
 type FriPcs = TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>;
 
+const MAX_POLYS: usize = 1000;
+
 pub static mut pcs: Option<TwoAdicFriPcs<Val, Dft, ValMmcs, ChallengeMmcs>> = None;
 pub static mut val_mmcs: Option<ValMmcs> = None;
 pub static mut challenge_mmcs: Option<ChallengeMmcs> = None;
-pub static mut commitment: Option<p3_symmetric::Hash<Val, u8, 32>> = None;
-pub static mut prover_data: Option<p3_merkle_tree::MerkleTree<Val, u8, DenseMatrix<Val>, 32>> =
-    None;
-pub static mut openings: Option<Vec<Vec<Vec<Vec<Challenge>>>>> = None;
-pub static mut proof: Option<
-    FriProof<
-        Challenge,
-        ExtensionMmcs<
-            Val,
+pub static mut commitment: [Option<p3_symmetric::Hash<Val, u8, 32>>; MAX_POLYS] =
+    [const { None }; MAX_POLYS];
+pub static mut prover_datas: [Option<p3_merkle_tree::MerkleTree<Val, u8, DenseMatrix<Val>, 32>>;
+    MAX_POLYS] = [const { None }; MAX_POLYS];
+pub static mut openings: [Option<HashMap<Vec<Val>, Vec<Vec<Vec<Vec<Challenge>>>>>>; MAX_POLYS] =
+    [const { None }; MAX_POLYS];
+pub static mut proof: [Option<
+    HashMap<
+        Vec<Val>,
+        FriProof<
             Challenge,
-            MerkleTreeMmcs<
+            ExtensionMmcs<
                 Val,
-                u8,
-                SerializingHasher32<Keccak256Hash>,
-                CompressionFunctionFromHasher<Keccak256Hash, 2, 32>,
-                32,
-            >,
-        >,
-        Val,
-        Vec<
-            BatchOpening<
-                Val,
+                Challenge,
                 MerkleTreeMmcs<
                     Val,
                     u8,
@@ -100,28 +96,37 @@ pub static mut proof: Option<
                     32,
                 >,
             >,
+            Val,
+            Vec<
+                BatchOpening<
+                    Val,
+                    MerkleTreeMmcs<
+                        Val,
+                        u8,
+                        SerializingHasher32<Keccak256Hash>,
+                        CompressionFunctionFromHasher<Keccak256Hash, 2, 32>,
+                        32,
+                    >,
+                >,
+            >,
         >,
     >,
-> = None;
+>; MAX_POLYS] = [const { None }; MAX_POLYS];
 pub static mut log_blowup: usize = 0;
 pub static mut log_final_poly_len: usize = 0;
 pub static mut num_queries: usize = 0;
 pub static mut proof_of_work_bits: usize = 0;
 pub static mut degree_bound: usize = 0;
 
-pub static mut query_paths_static: Option<Vec<(Vec<Challenge>, Vec<usize>, Vec<Val>)>> = None;
-pub static mut merkle_paths_static: Option<Vec<Vec<(Vec<Vec<Challenge>>, Vec<[u8; 32]>)>>> = None;
-pub static mut first_merkle_paths_static: Option<Vec<Vec<[u8; 32]>>> = None;
-pub static mut intermediate_oracles_static: Option<Vec<Val>> = None;
-pub static mut final_value_static: Option<Challenge> = None;
-pub static mut first_oracle_static: Option<p3_symmetric::Hash<Val, u8, 32>> = None;
-
 pub static mut ldes: Option<HashMap<Vec<Val>, Vec<Val>>> = None;
+
+pub static mut max_idx: Option<Arc<AtomicUsize>> = None;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(bound(serialize = "F: Serialize", deserialize = "F: DeserializeOwned"))]
 pub struct FriP3Commitment<F: PrimeField, H: Hash> {
     OUTPUT: [Output<H>; 1],
+    idx: usize,
     phantom: PhantomData<(F, H)>,
 }
 
@@ -177,7 +182,7 @@ where
             log_blowup = 3;
             log_final_poly_len = 0;
             num_queries = 10;
-            proof_of_work_bits = 8;
+            proof_of_work_bits = 0;
             val_mmcs = Some(ValMmcs::new(field_hash, compress));
             challenge_mmcs = Some(ChallengeMmcs::new(val_mmcs.clone().unwrap()));
             ldes = Some(HashMap::new());
@@ -186,6 +191,7 @@ where
                 val_mmcs.clone().unwrap(),
                 new_fri_config(),
             ));
+            max_idx = Some(Arc::new(AtomicUsize::new(0)));
         }
 
         Ok(())
@@ -231,13 +237,22 @@ where
             vec![(domain, matrix.clone())],
         );
 
+        let idx = unsafe {
+            let idx = Arc::clone(&max_idx.clone().unwrap());
+            idx.fetch_add(1, Ordering::Relaxed)
+        };
         unsafe {
-            prover_data = Some(prover_data_);
-            commitment = Some(comm);
+            prover_datas[idx] = Some(prover_data_);
+            commitment[idx] = Some(comm);
+            openings[idx] = Some(HashMap::new());
+            proof[idx] = Some(HashMap::new());
             degree_bound = degree;
         }
 
-        Ok(vec![FriP3Commitment::default()])
+        Ok(vec![FriP3Commitment {
+            idx,
+            ..Default::default()
+        }])
     }
 
     fn open(
@@ -267,7 +282,8 @@ where
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, Val>,
     ) -> Result<(), Error> {
         let pcs_ = unsafe { pcs.as_ref().unwrap() };
-        let prover_data_ = unsafe { prover_data.as_ref().unwrap() };
+        let comm = comms.into_iter().next().unwrap();
+        let prover_data_ = unsafe { prover_datas[comm.idx].as_ref().unwrap() };
 
         let (openings_, proof_) = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::open(
             &pcs_,
@@ -276,8 +292,14 @@ where
         );
 
         unsafe {
-            openings = Some(openings_);
-            proof = Some(proof_);
+            openings[comm.idx]
+                .as_mut()
+                .unwrap()
+                .insert(points.to_vec(), openings_.clone());
+            proof[comm.idx]
+                .as_mut()
+                .unwrap()
+                .insert(points.to_vec(), proof_.clone());
         }
 
         Ok(())
@@ -315,50 +337,42 @@ where
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, Val>,
     ) -> Result<(), Error> {
         let pcs_ = unsafe { pcs.as_ref().unwrap() };
+        let comm = comms.into_iter().next().unwrap();
 
-        let prover_data_ = unsafe { prover_data.as_ref().unwrap() };
-
-        let (openings_, proof_) = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::open(
-            &pcs_,
-            vec![(&prover_data_, vec![vec![Challenge::from(points[0])]])],
-            &mut Challenger::from_hasher(vec![], ByteHash {}),
-        );
+        let prover_data_ = unsafe { prover_datas[comm.idx].as_ref().unwrap() };
 
         let domain = <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::natural_domain_for_degree(
             &pcs_,
             unsafe { degree_bound },
         );
-        let comm = unsafe { commitment.as_ref().unwrap() };
         let rounds = vec![(
-            *comm,
+            *unsafe { commitment[comm.idx].as_ref().unwrap() },
             vec![(
                 domain,
                 vec![(Challenge::from(points[0]), unsafe {
-                    openings.as_ref().unwrap()[0][0][0].clone()
+                    openings[comm.idx]
+                        .as_ref()
+                        .unwrap()
+                        .get(&points.to_vec())
+                        .unwrap()[0][0][0]
+                        .clone()
                 })],
             )],
         )];
 
-        assert_eq!(
-            serde_json::to_string(&proof_).unwrap(),
-            serde_json::to_string(&unsafe { proof.as_ref().unwrap() }).unwrap()
-        );
-
         <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::verify(
             &pcs_,
             rounds.clone(),
-            &proof_,
+            unsafe {
+                proof[comm.idx]
+                    .as_ref()
+                    .unwrap()
+                    .get(&points.to_vec())
+                    .unwrap()
+            },
             &mut Challenger::from_hasher(vec![], ByteHash {}),
         )
         .unwrap();
-
-        // <FriPcs as p3_commit::Pcs<Challenge, Challenger>>::verify(
-        //     &pcs_,
-        //     rounds.clone(),
-        //     unsafe { proof.as_ref().unwrap() },
-        //     &mut Challenger::from_hasher(vec![], ByteHash {}),
-        // )
-        // .unwrap();
 
         Ok(())
     }

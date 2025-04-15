@@ -427,12 +427,7 @@ where
                     a
                 })
                 .collect();
-            // println!(
-            //     "prover comm: {:?}, fmp: {:?}, query: {:?}",
-            //     Output::<H>::from_slice(&comm.iter().last().unwrap()[0]),
-            //     mmcs_proof,
-            //     q
-            // );
+
             first_merkle_paths.push(mmcs_proof);
         }
 
@@ -593,7 +588,6 @@ where
 
             let fmp_vec = fmp.iter().map(|v| Output::<H>::from_slice(v)).collect_vec();
             let comm = Output::<H>::from_slice(&first_oracle);
-            // println!("verifier comm: {:?}, fmp: {:?}, query: {:?}", comm, fmp, q);
             authenticate_merkle_path_mmcs::<H, Val>(
                 &fmp_vec,
                 &reduced_openings,

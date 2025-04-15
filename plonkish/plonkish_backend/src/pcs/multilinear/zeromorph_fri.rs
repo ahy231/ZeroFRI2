@@ -173,29 +173,6 @@ where
         )
     }
 
-    // fn batch_open<'a>(
-    //     pp: &Self::ProverParam,
-    //     polys: impl IntoIterator<Item = &'a Self::Polynomial>,
-    //     comms: impl IntoIterator<Item = &'a Self::Commitment>,
-    //     points: &[Point<F, Self::Polynomial>],
-    //     evals: &[Evaluation<F>],
-    //     transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
-    // ) -> Result<(), Error> {
-    //     let polys = polys.into_iter().collect_vec();
-    //     let comms = comms.into_iter().collect_vec();
-    //     let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
-
-    //     for e in evals {
-    //         let poly = polys[e.poly()];
-    //         let comm = comms[e.poly()];
-    //         let point = &points[e.poly()];
-    //         let eval = e.value();
-    //         Self::open(pp, poly, comm, point, eval, transcript)?;
-    //     }
-
-    //     Ok(())
-    // }
-
     fn batch_open<'a>(
         pp: &Self::ProverParam,
         polys: impl IntoIterator<Item = &'a Self::Polynomial>,
@@ -203,222 +180,20 @@ where
         points: &[Point<F, Self::Polynomial>],
         evals: &[Evaluation<F>],
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
-    ) -> Result<(), Error>
-    where
-        Self::Commitment: 'a,
-    {
+    ) -> Result<(), Error> {
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
         let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
 
-        let ell = evals.len().next_power_of_two().ilog2() as usize;
-        let t = transcript.squeeze_challenges(ell);
-
-        let eq_xt = MultilinearPolynomial::eq_xy(&t);
-        let merged_polys = evals.iter().zip(eq_xt.evals().iter()).fold(
-            vec![(F::ONE, Cow::<MultilinearPolynomial<_>>::default()); points.len()],
-            |mut merged_polys, (eval, eq_xt_i)| {
-                if merged_polys[eval.point()].1.is_zero() {
-                    merged_polys[eval.point()] = (*eq_xt_i, Cow::Borrowed(polys[eval.poly()]));
-                } else {
-                    let coeff = merged_polys[eval.point()].0;
-                    if coeff != F::ONE {
-                        merged_polys[eval.point()].0 = F::ONE;
-                        *merged_polys[eval.point()].1.to_mut() *= &coeff;
-                    }
-                    *merged_polys[eval.point()].1.to_mut() += (eq_xt_i, polys[eval.poly()]);
-                }
-                merged_polys
-            },
-        );
-
-        let unique_merged_polys = merged_polys
-            .iter()
-            .unique_by(|(_, poly)| addr_of!(*poly.deref()))
-            .collect_vec();
-        let unique_merged_poly_indices = unique_merged_polys
-            .iter()
-            .enumerate()
-            .map(|(idx, (_, poly))| (addr_of!(*poly.deref()), idx))
-            .collect::<HashMap<_, _>>();
-        let expression = merged_polys
-            .iter()
-            .enumerate()
-            .map(|(idx, (scalar, poly))| {
-                let poly = unique_merged_poly_indices[&addr_of!(*poly.deref())];
-                Expression::<F>::eq_xy(idx)
-                    * Expression::Polynomial(Query::new(poly, Rotation::cur()))
-                    * scalar
-            })
-            .sum();
-        let virtual_poly = VirtualPolynomial::new(
-            &expression,
-            unique_merged_polys.iter().map(|(_, poly)| poly.deref()),
-            &[],
-            points,
-        );
-
-        let tilde_gs_sum =
-            inner_product(evals.iter().map(Evaluation::value), &eq_xt[..evals.len()]);
-        let now = Instant::now();
-
-        let (challenges, _) = SumCheck::prove(
-            &(),
-            pp.commit_pp.num_vars,
-            virtual_poly,
-            tilde_gs_sum,
-            transcript,
-        )?;
-        //	println!("sum check time {:?}", now.elapsed().as_millis());
-
-        let eq_xy_evals = points
-            .iter()
-            .map(|point| eq_xy_eval(&challenges, point))
-            .collect_vec();
-
-        let g_prime = merged_polys
-            .into_iter()
-            .zip(eq_xy_evals.iter())
-            .map(|((scalar, poly), eq_xy_eval)| (scalar * eq_xy_eval, poly.into_owned()))
-            .sum::<MultilinearPolynomial<_>>();
-
-        let (comm, eval) = if cfg!(feature = "sanity-check") {
-            let scalars = evals
-                .iter()
-                .zip(eq_xt.evals())
-                .map(|(eval, eq_xt_i)| eq_xy_evals[eval.point()] * eq_xt_i)
-                .collect_vec();
-            let bases = evals.iter().map(|eval| comms[eval.poly()]);
-            let now = Instant::now();
-
-            let comm = Self::Commitment::sum_with_scalar(&scalars, bases);
-            //	    println!("sum with scalar {:?}", now.elapsed().as_millis());
-            (comm, g_prime.evaluate(&challenges))
-        } else {
-            (Self::Commitment::default(), F::ZERO)
-        };
-
-        let point = challenges;
-
-        //write batch queries
-
-        let poly = g_prime;
-
-        let num_vars = poly.num_vars();
-
-        if cfg!(feature = "sanity-check") {
-            assert_eq!(poly.evaluate(&point[..]), eval);
+        for e in evals {
+            let poly = polys[e.poly()];
+            let comm = comms[e.poly()];
+            let point = &points[e.poly()];
+            let eval = e.value();
+            Self::open(pp, poly, comm, point, eval, transcript)?;
         }
 
-        let (quotients, remainder) =
-            quotients(&poly, &point[..], |_, q| UnivariatePolynomial::new(q));
-        let now = Instant::now();
-        let comms_fri = Fri::<F, H>::batch_commit_and_write(&pp.commit_pp, &quotients, transcript)?;
-        //	println!("batch {:?} batch size {:?}", now.elapsed(),quotients.len());
-
-        if cfg!(feature = "sanity-check") {
-            assert_eq!(remainder, eval);
-        }
-
-        let x = transcript.squeeze_challenge();
-
-        let mut fri_polys = Vec::with_capacity(polys.len());
-        let mut fri_evals = Vec::with_capacity(evals.len());
-        for poly in &polys {
-            let uni_poly = UnivariatePolynomial::new(poly.evals().to_vec());
-            let uni_poly_eval = uni_poly.evaluate(&x);
-            transcript.write_field_element(&uni_poly_eval);
-            fri_polys.push(uni_poly);
-            fri_evals.push(uni_poly_eval);
-        }
-
-        Fri::<F, H>::batch_open(
-            &pp.commit_pp,
-            &fri_polys,
-            comms.clone(),
-            &vec![x; fri_polys.len()],
-            fri_evals
-                .iter()
-                .enumerate()
-                .map(|(idx, eval)| Evaluation::new(idx, idx, *eval))
-                .collect_vec()
-                .as_slice(),
-            transcript,
-        )?;
-
-        let q_evals = quotients.iter().map(|q| q.evaluate(&x)).collect_vec();
-        transcript.write_field_elements(&q_evals);
-        Fri::<F, H>::batch_open(
-            &pp.commit_pp,
-            &quotients,
-            &comms_fri,
-            &vec![x; quotients.len()],
-            q_evals
-                .iter()
-                .map(|q_eval| Evaluation::new(0, 0, *q_eval))
-                .collect_vec()
-                .as_slice()
-                .as_ref(),
-            transcript,
-        )?;
-
-        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
-
-        let mut f = UnivariatePolynomial::new(poly.evals().to_vec());
-        let comm = Fri::<F, H>::commit_and_write(&pp.commit_pp, &f, transcript);
-
-        let f_eval_at_x = f.evaluate(&x);
-        if cfg!(feature = "sanity-check") {
-            let mut f_eval = UnivariatePolynomial::new(vec![eval_scalar * eval]);
-            izip!(&quotients, &q_scalars).for_each(|(q, scalar)| f_eval += (scalar, q));
-            assert_eq!(f_eval.evaluate(&x), f_eval_at_x);
-        }
-
-        let (res, q) = open_helper(
-            &pp.commit_pp,
-            &f,
-            &comm.unwrap(),
-            &x,
-            &f_eval_at_x,
-            transcript,
-        );
-
-        let (queried_els, queries_usize) = q;
-
-        let mut individual_queries: Vec<Vec<(F, F)>> = Vec::with_capacity(queries_usize.len());
-
-        let mut individual_paths: Vec<Vec<Vec<(Output<H>, Output<H>)>>> =
-            Vec::with_capacity(queries_usize.len());
-
-        for query in &queries_usize {
-            let mut comm_queries = Vec::with_capacity(evals.len());
-            let mut comm_paths = Vec::with_capacity(evals.len());
-            for eval in evals {
-                let c = &comms[eval.poly()];
-                let res = query_codeword::<F, H>(query, &c.codeword, &c.codeword_tree);
-                comm_queries.push(res.0);
-                comm_paths.push(res.1);
-            }
-
-            individual_queries.push(comm_queries);
-            individual_paths.push(comm_paths);
-        }
-
-        individual_queries.iter().flatten().for_each(|(f1, f2)| {
-            transcript.write_field_element(f1).unwrap();
-            transcript.write_field_element(f2).unwrap();
-        });
-        //paths for batch
-        individual_paths
-            .iter()
-            .flatten()
-            .flatten()
-            .for_each(|(h1, h2)| {
-                transcript.write_commitment(h1);
-                transcript.write_commitment(h2);
-            });
-
-        res
+        Ok(())
     }
 
     fn read_commitments(
@@ -469,145 +244,22 @@ where
         )
     }
 
-    // fn batch_verify<'a>(
-    //     vp: &Self::VerifierParam,
-    //     comms: impl IntoIterator<Item = &'a Self::Commitment>,
-    //     points: &[Point<F, Self::Polynomial>],
-    //     evals: &[Evaluation<F>],
-    //     transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
-    // ) -> Result<(), Error>
-    // where
-    //     Self::Commitment: 'a,
-    // {
-    //     let comms = comms.into_iter().collect_vec();
-    //     for e in evals {
-    //         let comm = &comms[e.poly()];
-    //         let point = &points[e.poly()];
-    //         let eval = e.value();
-    //         Self::verify(vp, comm, point, eval, transcript)?;
-    //     }
-
-    //     Ok(())
-    // }
-
     fn batch_verify<'a>(
         vp: &Self::VerifierParam,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
         points: &[Point<F, Self::Polynomial>],
         evals: &[Evaluation<F>],
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
-    ) -> Result<(), Error> {
-        let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
+    ) -> Result<(), Error>
+    where
+        Self::Commitment: 'a,
+    {
         let comms = comms.into_iter().collect_vec();
-
-        let ell = evals.len().next_power_of_two().ilog2() as usize;
-        let t = transcript.squeeze_challenges(ell);
-
-        let eq_xt = MultilinearPolynomial::eq_xy(&t);
-        let tilde_gs_sum =
-            inner_product(evals.iter().map(Evaluation::value), &eq_xt[..evals.len()]);
-
-        let (g_prime_eval, verify_point) =
-            SumCheck::verify(&(), vp.vp.num_vars, 2, tilde_gs_sum, transcript)?;
-
-        let eq_xy_evals = points
-            .iter()
-            .map(|point| eq_xy_eval(&verify_point, point))
-            .collect_vec();
-
-        let comm = Self::Commitment::default();
-        let point = verify_point;
-        let eval = g_prime_eval;
-        let num_vars = point.len();
-
-        let q_comms = Fri::<F, H>::read_commitments(&vp.vp, num_vars, transcript)?;
-
-        let x = transcript.squeeze_challenge();
-
-        let uni_evals = transcript.read_field_elements(comms.len()).unwrap();
-        Fri::<F, H>::batch_verify(
-            &vp.vp,
-            comms.clone(),
-            &vec![x; comms.len()],
-            &uni_evals
-                .iter()
-                .enumerate()
-                .map(|(idx, eval)| Evaluation::new(idx, idx, *eval))
-                .collect_vec()
-                .as_slice(),
-            transcript,
-        )?;
-
-        let q_evals = transcript.read_field_elements(num_vars).unwrap();
-        Fri::<F, H>::batch_verify(
-            &vp.vp,
-            &q_comms,
-            &vec![x; num_vars],
-            &q_evals
-                .iter()
-                .map(|q_eval| Evaluation::new(0, 0, *q_eval))
-                .collect_vec()
-                .as_slice()
-                .as_ref(),
-            transcript,
-        )?;
-
-        let (eval_scalar, q_scalars) = eval_and_quotient_scalars(x, &point[..]);
-        let mut f_eval = eval_scalar * eval;
-        izip!(&q_evals, &q_scalars).for_each(|(q, scalar)| f_eval += *scalar * *q);
-
-        //        let scalars = chain![[F::ONE, z, eval_scalar * eval], q_scalars].collect_vec();
-        //      let bases = chain![[q_hat_comm, comm.0, vp.g1()], q_comms].collect_vec();
-        let comm = Fri::<F, H>::read_commitments(&vp.vp, 1, transcript)?;
-
-        let (v, queries_usize) = verify_helper(&vp.vp, &comm[0], &x, &f_eval, transcript);
-
-        let mut ind_queries = Vec::with_capacity(vp.vp.num_verifier_queries);
-        let mut count = 0;
-        for i in 0..vp.vp.num_verifier_queries {
-            let mut comms_queries = Vec::with_capacity(evals.len());
-            for j in 0..evals.len() {
-                let queries = transcript.read_field_elements(2).unwrap();
-                comms_queries.push(queries);
-            }
-
-            ind_queries.push(comms_queries);
-        }
-
-        //read merkle paths
-        let mut batch_paths = Vec::with_capacity(vp.vp.num_verifier_queries);
-        let mut count = 0;
-        for i in 0..vp.vp.num_verifier_queries {
-            let mut comms_merkle_paths = Vec::with_capacity(evals.len());
-            for j in 0..evals.len() {
-                let merkle_path = transcript
-                    .read_commitments(2 * (vp.vp.num_vars + vp.vp.log_rate))
-                    .unwrap();
-                let chunked_path = merkle_path.chunks(2).map(|c| c.to_vec()).collect_vec();
-
-                comms_merkle_paths.push(chunked_path);
-            }
-
-            batch_paths.push(comms_merkle_paths);
-        }
-
-        for vq in 0..vp.vp.num_verifier_queries {
-            for cq in 0..ind_queries[vq].len() {
-                let tree = &comms[evals[cq].poly].codeword_tree;
-                /*
-                        assert_eq!(
-                                    tree[tree.len() - 1][0],
-                                    batch_paths[vq][cq].pop().unwrap().pop().unwrap()
-                                );
-                */
-                authenticate_merkle_path::<H, F>(
-                    &batch_paths[vq][cq],
-                    (ind_queries[vq][cq][0], ind_queries[vq][cq][1]),
-                    queries_usize[vq],
-                );
-
-                count += 1;
-            }
+        for e in evals {
+            let comm = &comms[e.poly()];
+            let point = &points[e.poly()];
+            let eval = e.value();
+            Self::verify(vp, comm, point, eval, transcript)?;
         }
 
         Ok(())
