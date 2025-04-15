@@ -33,7 +33,7 @@ use plonkish_backend::pcs::mock_pcs::PcsOps;
 use plonkish_backend::pcs::multilinear::deepfold::Deepfold;
 use plonkish_backend::pcs::multilinear::{
     interpolate_over_boolean_hypercube_with_copy, Basefold, Gemini, MultilinearBrakedown,
-    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFriV3,
+    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFri, ZeromorphFriV3,
 };
 use plonkish_backend::pcs::univariate::UnivariateKzg;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
@@ -50,7 +50,7 @@ use plonkish_backend::util::transcript::{
 };
 use plonkish_backend::{
     halo2_curves::bn256::Fr,
-    pcs::{multilinear::ZeromorphFri, univariate::Fri},
+    pcs::{multilinear::ZeromorphFriV2, univariate::Fri},
     poly::multilinear::MultilinearPolynomial,
     util::poly_loader::container::Field as CF,
 };
@@ -681,9 +681,6 @@ impl System {
         type BrakedownBlake2s = MultilinearBrakedown<GoldilocksMont, Blake2s, BrakedownSpec1>;
 
         match self {
-            System::ZeromorphFri => {
-                bench_pcs::<Fr, ZeromorphFri<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
-            }
             System::Basefold256 => {
                 bench_pcs::<Fr, Basefold<_, Blake2s, BasefoldFri>, Blake2sTranscript<_>>(self, k)
             }
@@ -800,14 +797,17 @@ impl System {
             System::Deepfold => {
                 bench_pcs::<Mersenne61Mont, Deepfold, Blake2sTranscript<_>>(self, k)
             }
-            System::ZeromorphFriV2 => {
-                unimplemented!();
+            System::ZeromorphFri => {
+                bench_pcs::<Fr, ZeromorphFri<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
-            System::Virgo => {
-                unimplemented!("Virgo is not implemented for mock proof system")
+            System::ZeromorphFriV2 => {
+                bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
             System::ZeromorphFriV3 => {
                 bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
+            }
+            System::Virgo => {
+                unimplemented!("Virgo is not implemented for mock proof system")
             }
         }
     }
@@ -910,11 +910,12 @@ fn sample<T1, T2, T3>(
 }
 
 fn sample_size(k: usize) -> usize {
-    if k < 16 {
-        20
-    } else if k < 20 {
-        5
-    } else {
-        1
-    }
+    // if k < 16 {
+    //     20
+    // } else if k < 20 {
+    //     5
+    // } else {
+    //     1
+    // }
+    1
 }

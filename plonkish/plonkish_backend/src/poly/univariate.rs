@@ -70,9 +70,15 @@ impl<F: PrimeField> Polynomial<F> for UnivariatePolynomial<F, CoefficientBasis> 
     type Point = F;
 
     fn from_evals(evals: Vec<F>) -> Self {
+        let n = evals.len();
         let mut values = evals;
         reverse_bits_in_place(&mut values);
-        ntt_from_rbo_inplace(&mut values, F::ROOT_OF_UNITY_INV);
+        ntt_from_rbo_inplace(
+            &mut values,
+            primitive_root_of_unity::<F>(log2_strict_usize(n))
+                .invert()
+                .unwrap(),
+        );
         let inv_len = F::from_u128(values.len() as u128).invert().unwrap();
         values.iter_mut().for_each(|v| *v *= inv_len);
         Self::new(values)
@@ -81,7 +87,10 @@ impl<F: PrimeField> Polynomial<F> for UnivariatePolynomial<F, CoefficientBasis> 
     fn into_evals(self) -> Vec<F> {
         let mut values = self.values.clone();
         reverse_bits_in_place(&mut values);
-        ntt_from_rbo_inplace(&mut values, F::ROOT_OF_UNITY);
+        ntt_from_rbo_inplace(
+            &mut values,
+            primitive_root_of_unity::<F>(log2_strict_usize(self.values.len())),
+        );
         values
     }
 
@@ -430,4 +439,18 @@ fn reverse_bits_in_place<F: Field>(poly: &mut Vec<F>) {
             std::mem::swap(&mut tmp1[k], &mut tmp2[k_rev - k - 1]);
         }
     }
+}
+
+fn primitive_root_of_unity<F: PrimeField>(n_log: usize) -> F {
+    assert!(n_log <= (F::S as usize));
+    let base = F::ROOT_OF_UNITY;
+    exp_power_of_2(base, (F::S as usize) - n_log)
+}
+
+fn exp_power_of_2<F: PrimeField>(el: F, power_log: usize) -> F {
+    let mut res = el;
+    for _ in 0..power_log {
+        res = el * el;
+    }
+    res
 }

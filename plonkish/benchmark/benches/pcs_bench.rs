@@ -25,7 +25,7 @@ use plonkish_backend::{
     pcs::{
         multilinear::{
             Basefold, BasefoldExtParams, Gemini, MultilinearBrakedown, MultilinearHyrax,
-            MultilinearKzg, ZeromorphFri,
+            MultilinearKzg, ZeromorphFri, ZeromorphFriV2,
         },
         univariate::{Fri, UnivariateKzg},
         PolynomialCommitmentScheme,
