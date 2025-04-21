@@ -1,6 +1,6 @@
 use crate::pcs::univariate::batched_fri::BatchedFri;
 use crate::pcs::univariate::fri_p3::FriP3;
-use crate::pcs::univariate::{open_helper, verify_helper, FriCommitment};
+use crate::pcs::univariate::{open_helper, verify_helper, FriCommitment, FriParams};
 use crate::piop::sum_check::{
     classic::{ClassicSumCheck, CoefficientsProver},
     eq_xy_eval, SumCheck as _, VirtualPolynomial,
@@ -48,16 +48,16 @@ impl<H> PolynomialCommitmentScheme<MyFr> for ZeromorphFri<Fri<MyFr, H>>
 where
     H: Hash,
 {
-    type Param = ();
-    type ProverParam = ();
-    type VerifierParam = ();
+    type Param = FriParams<MyFr>;
+    type ProverParam = FriProverParams<MyFr>;
+    type VerifierParam = FriVerifierParams<MyFr>;
     type Polynomial = MultilinearPolynomial<MyFr>;
-    type Commitment = <FriP3<MyFr, H> as PolynomialCommitmentScheme<MyFr>>::Commitment;
-    type CommitmentChunk = <FriP3<MyFr, H> as PolynomialCommitmentScheme<MyFr>>::CommitmentChunk;
+    type Commitment = <Fri<MyFr, H> as PolynomialCommitmentScheme<MyFr>>::Commitment;
+    type CommitmentChunk = <Fri<MyFr, H> as PolynomialCommitmentScheme<MyFr>>::CommitmentChunk;
 
     fn setup(poly_size: usize, batch_size: usize, rng: impl RngCore) -> Result<Self::Param, Error> {
         BatchedFri::<MyFr, H>::setup(poly_size, batch_size, OsRng);
-        FriP3::<MyFr, H>::setup(poly_size, batch_size, rng)
+        Fri::<MyFr, H>::setup(poly_size, batch_size, rng)
     }
 
     fn trim(
@@ -65,9 +65,9 @@ where
         poly_size: usize,
         batch_size: usize,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), Error> {
-        let (commit_pp, vp) = FriP3::<MyFr, H>::trim(param, poly_size, batch_size)?;
+        let (commit_pp, vp) = Fri::<MyFr, H>::trim(param, poly_size, batch_size)?;
 
-        Ok(((), ()))
+        Ok((commit_pp, vp))
     }
 
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
@@ -76,7 +76,7 @@ where
         //	println!("after interp");
 
         let poly = UnivariatePolynomial::new(evals.to_vec());
-        FriP3::<MyFr, H>::commit(&(), &poly)
+        Fri::<MyFr, H>::commit(pp, &poly)
     }
 
     fn batch_commit<'a>(
@@ -140,7 +140,7 @@ where
         let q_evals = quotients.iter().map(|q| q.evaluate(&x)).collect_vec();
         transcript.write_field_elements(&q_evals);
 
-        FriP3::<MyFr, H>::open(&(), &f, &comm, &x, &f_eval_at_x, transcript)?;
+        Fri::<MyFr, H>::open(pp, &f, &comm, &x, &f_eval_at_x, transcript)?;
 
         BatchedFri::<MyFr, H>::batch_open(
             &(),
@@ -188,7 +188,7 @@ where
         num_polys: usize,
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, MyFr>,
     ) -> Result<Vec<Self::Commitment>, Error> {
-        FriP3::<MyFr, H>::read_commitments(&(), num_polys, transcript)
+        Fri::<MyFr, H>::read_commitments(vp, num_polys, transcript)
     }
 
     fn verify(
@@ -211,7 +211,7 @@ where
         let q_evals = transcript.read_field_elements(num_vars).unwrap();
         let mut f_eval_at_x = eval_scalar * eval;
         izip!(&q_evals, &q_scalars).for_each(|(q, scalar)| f_eval_at_x += *scalar * *q);
-        FriP3::<MyFr, H>::verify(&(), &comm, &x, &f_eval_at_x, transcript)?;
+        Fri::<MyFr, H>::verify(vp, &comm, &x, &f_eval_at_x, transcript)?;
 
         BatchedFri::<MyFr, H>::batch_verify(
             &(),

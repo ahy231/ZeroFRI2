@@ -798,13 +798,13 @@ impl System {
                 bench_pcs::<Mersenne61Mont, Deepfold, Blake2sTranscript<_>>(self, k)
             }
             System::ZeromorphFri => {
-                bench_pcs::<Fr, ZeromorphFri<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
+                bench_pcs::<Fr, ZeromorphFri<Fri<_, Blake2s>>, Keccak256Transcript<_>>(self, k)
             }
             System::ZeromorphFriV2 => {
-                bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
+                bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Keccak256Transcript<_>>(self, k)
             }
             System::ZeromorphFriV3 => {
-                bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
+                bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Keccak256Transcript<_>>(self, k)
             }
             System::Virgo => {
                 unimplemented!("Virgo is not implemented for mock proof system")
