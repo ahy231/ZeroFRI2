@@ -1,3 +1,6 @@
+// Brand new version of Zeromorph + FRI
+// Optimize the original protocol with Rolling Batch and MMCS.
+
 use crate::pcs::univariate::batched_fri::BatchedFri;
 use crate::pcs::univariate::fri_p3::FriP3;
 use crate::pcs::univariate::{open_helper, verify_helper, FriCommitment, FriParams};

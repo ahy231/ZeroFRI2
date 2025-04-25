@@ -1,3 +1,7 @@
+// Improved version of zeromorph_fri.rs
+// 1. Fix the integrity of the original protocol.
+// 2. Forge a virtual polynomial named g, and only do FRI once on g.
+
 use crate::util::algebra::batch_bit_reverse;
 use crate::util::fake_extension::MyFr;
 use crate::util::hash::Output;
