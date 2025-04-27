@@ -637,8 +637,6 @@ enum System {
     ZeromorphFri,
     ZeromorphFriV2,
     ZeromorphFriV3,
-    P3Fri,
-    Circle,
     Gemini,
     Hyrax,
     Deepfold,
@@ -657,8 +655,6 @@ impl System {
             System::ZeromorphFri,
             System::ZeromorphFriV2,
             // System::ZeromorphFriV3,
-            System::P3Fri,
-            System::Circle,
             System::Gemini,
             System::Hyrax,
             System::Deepfold,
@@ -782,12 +778,6 @@ impl System {
             System::BrakedownBlake2s => {
                 bench_pcs::<GoldilocksMont, BrakedownBlake2s, Blake2sTranscript<_>>(self, k)
             }
-            System::P3Fri => {
-                unimplemented!("P3Fri is not implemented for mock proof system")
-            }
-            System::Circle => {
-                unimplemented!("Circle is not implemented for mock proof system")
-            }
             System::Gemini => {
                 bench_pcs::<Fr, Gemini<UnivariateKzg<Bn256>>, Blake2sTranscript<_>>(self, k)
             }
@@ -823,10 +813,8 @@ impl Display for System {
             System::BasefoldBlake2s => write!(f, "basefoldblake2s"),
             System::Brakedown => write!(f, "brakedown"),
             System::BrakedownBlake2s => write!(f, "brakedownblake2s"),
-            System::Circle => write!(f, "circle"),
             System::Gemini => write!(f, "gemini"),
             System::Hyrax => write!(f, "hyrax"),
-            System::P3Fri => write!(f, "fri"),
             System::ZeromorphFriV2 => write!(f, "zeromorph_fri_v2"),
             System::Deepfold => write!(f, "deepfold"),
             System::Virgo => write!(f, "virgo"),
@@ -849,16 +837,14 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "basefoldblake2s" => systems.push(System::BasefoldBlake2s),
                     "brakedown" => systems.push(System::Brakedown),
                     "brakedownblake2s" => systems.push(System::BrakedownBlake2s),
-                    "circle" => systems.push(System::Circle),
                     "gemini" => systems.push(System::Gemini),
                     "hyrax" => systems.push(System::Hyrax),
-                    "fri" => systems.push(System::P3Fri),
                     "zeromorph_fri_v2" => systems.push(System::ZeromorphFriV2),
                     "zeromorph_fri_v3" => systems.push(System::ZeromorphFriV3),
                     "virgo" => systems.push(System::Virgo),
                     "deepfold" => systems.push(System::Deepfold),
                     _ => panic!(
-                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne,basefoldblake2s,brakedown,brakedownblake2s,circle,gemini,hyrax,fri,zeromorph_fri_v2,virgo,deepfold}}"
+                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne,basefoldblake2s,brakedown,brakedownblake2s,gemini,hyrax,zeromorph_fri_v2,virgo,deepfold}}"
                     ),
                 },
                 "--k" => {
