@@ -63,18 +63,19 @@ fn main() -> io::Result<()> {
             let pcs = ask_choice(
                 "Which PCS/back-end?",
                 &[
-                    "multilinearkzg",
+                    "multilinear_kzg",
                     "basefold256",
                     "basefold61mersenne",
                     "basefoldblake2s",
                     "brakedown",
                     "brakedownblake2s",
                     "zeromorphfri",
-                    "zeromorphfriv2",
-                    "zeromorphfriv3",
+                    "zeromorph_fri_v2",
+                    "zeromorph_fri_v3",
                     "gemini",
                     "hyrax",
                     "deepfold",
+                    "virgo",
                 ],
             )?;
             run_test_bench("mock_proof_system", &k_input, &pcs)?;
