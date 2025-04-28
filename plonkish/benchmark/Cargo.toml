@@ -79,18 +79,18 @@ timer = [
 ]
 
 
-# [[bench]]
-# name = "brakedown_proof_system"
-# harness = false
+[[bench]]
+name = "brakedown_proof_system"
+harness = false
 # [[bench]]
 # name = "zeromorph_fri_proof_system"
 # harness = false
-[[bench]]
-name = "gemini_proof_system"
-harness = false
-[[bench]]
-name = "basefold_proof_system"
-harness = false
+# [[bench]]
+# name = "gemini_proof_system"
+# harness = false
+# [[bench]]
+# name = "basefold_proof_system"
+# harness = false
 # [[bench]]
 # name = "hyrax_proof_system"
 # harness = false
@@ -100,9 +100,9 @@ harness = false
 # [[bench]]
 # name = "p3_proof_system"
 # harness = false
-[[bench]]
-name = "deepfold_proof_system"
-harness = false
+# [[bench]]
+# name = "deepfold_proof_system"
+# harness = false
 # [[bench]]
 # name = "virgo_proof_system"
 # harness = false
@@ -112,8 +112,8 @@ harness = false
 [[bench]]
 name = "get_mock_data"
 harness = false
-[[bench]]
-name = "pcs_bench"
-harness = false
+# [[bench]]
+# name = "pcs_bench"
+# harness = false
 # [[bin]]
 # name = "plotter"
