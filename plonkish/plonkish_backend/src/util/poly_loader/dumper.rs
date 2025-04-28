@@ -1,7 +1,66 @@
 use serde::Serialize;
 use serde_json::to_string;
-use std::fs::File;
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{self, Write};
+
+use std::path::Path;
+
+/// Ensures path exists: if path doesn't exist, automatically creates parent directories and creates file/directory as needed.
+///
+/// # Arguments
+/// - `path`: The path to check/create (can point to file or directory).
+///
+/// # Rules
+/// - If path ends with directory separator → creates directory.
+/// - Otherwise → creates file.
+///
+/// # Errors
+/// Returns `std::io::Error` type errors (e.g., insufficient permissions, invalid path).
+pub fn ensure_path_exists(path: &Path) -> io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+
+    // get parent directory (handle special cases like root directory)
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Path has no parent directory (e.g., root)",
+        )
+    })?;
+
+    // recursively create parent directory
+    fs::create_dir_all(parent)?;
+
+    // create file, handle possible race conditions
+    match File::create(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_file() {
+        let file_path = Path::new("subdir/test.txt");
+
+        // ensure file creation succeeds
+        ensure_path_exists(&file_path).unwrap();
+        assert!(file_path.is_file());
+    }
+
+    #[test]
+    fn test_existing_path() {
+        let existing_path = Path::new("subdir/test.txt");
+
+        // path already exists, no operation needed
+        ensure_path_exists(existing_path).unwrap();
+    }
+}
 
 pub struct Dumper;
 
@@ -13,7 +72,10 @@ impl Dumper {
     pub fn dump<T: Serialize>(&self, data: &T, file_path: &str) {
         let mut result = to_string(data).unwrap();
 
-        let mut file = File::create(file_path).unwrap();
+        let path = Path::new(file_path);
+        ensure_path_exists(path).unwrap();
+
+        let mut file = File::create(path).unwrap();
         write!(file, "{}", result).unwrap();
         file.flush().unwrap();
     }
