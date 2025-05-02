@@ -14,7 +14,7 @@ pub struct Polynomial<T: MyField> {
 impl<T: MyField> Polynomial<T> {
     pub fn new(mut coefficients: Vec<T>) -> Polynomial<T> {
         let zero = T::from_int(0);
-        while *coefficients.last().unwrap() == zero {
+        while coefficients.len() > 1 && *coefficients.last().unwrap() == zero {
             coefficients.pop();
         }
         Polynomial { coefficients }

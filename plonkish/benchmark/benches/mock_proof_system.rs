@@ -797,7 +797,7 @@ impl System {
                 bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Keccak256Transcript<_>>(self, k)
             }
             System::Virgo => {
-                unimplemented!("Virgo is not implemented for mock proof system")
+                bench_pcs::<Mersenne61Mont, VirgoPCS, Blake2sTranscript<_>>(self, k)
             }
         }
     }

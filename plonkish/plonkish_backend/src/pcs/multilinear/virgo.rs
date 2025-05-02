@@ -541,7 +541,11 @@ where
         _batch_size: usize,
         _rng: impl RngCore,
     ) -> Result<Self::Param, crate::Error> {
-        let num_vars = poly_size;
+        let num_vars = poly_size.trailing_zeros() as usize;
+        let width = num_vars + CODE_RATE;
+        if width >= usize::BITS as usize {
+            return Err(Error::InvalidPcsParam("poly_size too large".into()));
+        }
         let base_coset = Coset::new(1 << (num_vars + CODE_RATE), F::random_element());
         let mut interpolate_cosets = vec![base_coset];
         for i in 1..=num_vars {
