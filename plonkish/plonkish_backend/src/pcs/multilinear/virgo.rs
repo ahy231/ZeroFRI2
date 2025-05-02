@@ -1,6 +1,8 @@
 // virgo.rs
 
+use crate::util::mersenne_61_mont::Mersenne61Mont as F;
 use ff::Field;
+use poly::multilinear::MultilinearPolynomial as BackendMpoly;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,7 +14,7 @@ use crate::util::{
     algebra::{
         coset::Coset,
         field::{as_bytes_vec, mersenne61_ext::Mersenne61Ext, MyField},
-        polynomial::{MultilinearPolynomial, Polynomial, VanishingPolynomial},
+        polynomial::{MultilinearPolynomial as UtilMPoly, Polynomial, VanishingPolynomial},
         CODE_RATE, SECURITY_BITS, SIZE, STEP,
     },
     merkle_tree::{MerkleTreeProver, MerkleTreeVerifier, MERKLE_ROOT_SIZE},
@@ -91,7 +93,7 @@ pub struct FriProver<T: MyField> {
     pub function_u: InterpolateValue<T>,
     pub interpolation_v: Option<Vec<T>>,
     pub poly_u: Polynomial<T>,
-    pub polynomial: MultilinearPolynomial<T>,
+    pub polynomial: UtilMPoly<T>,
     pub foldings: Vec<InterpolateValue<T>>,
     pub oracle: RandomOracle<T>,
     pub evaluation: Option<T>,
@@ -104,7 +106,7 @@ impl<T: MyField> FriProver<T> {
         total_round: usize,
         fri_cosets: &Vec<Coset<T>>,
         vector_interpolation_coset: &Coset<T>,
-        polynomial: MultilinearPolynomial<T>,
+        polynomial: UtilMPoly<T>,
         oracle: &RandomOracle<T>,
         step: usize,
     ) -> FriProver<T> {
@@ -510,7 +512,7 @@ pub struct VirgoVerifierParam<F: MyField> {
 /// In our scheme the commitment consists of the u_root (first committed polynomial),
 /// the h_root (from the FRI function-h) and then one root per folding round.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct VirgoCommitment(pub Vec<[u8; MERKLE_ROOT_SIZE]>);
+pub struct VirgoCommitment(pub Vec<[u8; 32]>);
 
 impl AsRef<[[u8; MERKLE_ROOT_SIZE]]> for VirgoCommitment {
     fn as_ref(&self) -> &[[u8; MERKLE_ROOT_SIZE]] {
@@ -522,17 +524,17 @@ impl AsRef<[[u8; MERKLE_ROOT_SIZE]]> for VirgoCommitment {
 #[derive(Clone, Debug)]
 pub struct VirgoPCS;
 
-impl<F> PolynomialCommitmentScheme<F> for VirgoPCS
+impl PolynomialCommitmentScheme<F> for VirgoPCS
 where
     F: MyField + ff::Field + Serialize + for<'de> Deserialize<'de>,
-    MultilinearPolynomial<F>: Serialize + for<'de> Deserialize<'de> + Clone + Debug + PolyTrait<F>,
+    BackendMpoly<F>: Serialize + for<'de> Deserialize<'de> + Clone + Debug + PolyTrait<F>,
 {
     type Param = VirgoParam<F>;
     type ProverParam = VirgoProverParam<F>;
     type VerifierParam = VirgoVerifierParam<F>;
-    type Polynomial = MultilinearPolynomial<F>;
+    type Polynomial = BackendMpoly<F>;
     type Commitment = VirgoCommitment;
-    type CommitmentChunk = [u8; MERKLE_ROOT_SIZE];
+    type CommitmentChunk = [u8; 32];
 
     fn setup(
         poly_size: usize,
@@ -579,7 +581,7 @@ where
             pp.param.total_round,
             &pp.param.interpolate_cosets,
             &pp.param.vector_interpolation_coset,
-            poly.clone(),
+            UtilMPoly::new(poly.coefficients().to_vec()),
             &random_oracle,
             pp.param.step,
         );
@@ -635,7 +637,7 @@ where
             pp.param.total_round,
             &pp.param.interpolate_cosets,
             &pp.param.vector_interpolation_coset,
-            poly.clone(),
+            UtilMPoly::new(poly.coefficients().to_vec()),
             &random_oracle,
             pp.param.step,
         );
@@ -655,10 +657,10 @@ where
         let (folding_proofs, function_proofs, v_values) = fri_prover.query();
         // Write function proofs.
         for qp in function_proofs.iter() {
-            let proof_chunks: Vec<[u8; MERKLE_ROOT_SIZE]> = qp
+            let proof_chunks: Vec<Self::CommitmentChunk> = qp
                 .proof_bytes
-                .chunks(MERKLE_ROOT_SIZE)
-                .map(|chunk| chunk.try_into().unwrap())
+                .chunks(MERKLE_ROOT_SIZE) // still splits at 32-byte boundaries
+                .map(|c| c.try_into().unwrap())
                 .collect();
             transcript.write_commitments(&proof_chunks)?;
             let field_vals: Vec<F> = qp.proof_values.iter().map(|(_, v)| *v).collect();
@@ -849,7 +851,7 @@ mod tests {
 
     fn output_proof_size(variable_num: usize) -> usize {
         let total_round = variable_num;
-        let polynomial = MultilinearPolynomial::random_polynomial(variable_num);
+        let polynomial = UtilMPoly::random_polynomial(variable_num);
         let mut interpolate_cosets = vec![Coset::new(
             1 << (variable_num + CODE_RATE),
             Mersenne61Ext::random_element(),
