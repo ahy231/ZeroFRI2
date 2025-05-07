@@ -34,7 +34,7 @@ use crate::util::{
 struct InterpolateValue<T: MyField> {
     value: Vec<T>,
     leaf_size: usize,
-    merkle_tree: MerkleTreeProver,
+    merkle_tree: MerkleTreeProver, 
 }
 
 impl<T: MyField> InterpolateValue<T> {
@@ -762,8 +762,7 @@ where
         let leaf_indices = fri_verifier.oracle.query_list.clone();
         let num_field_elems = leaf_indices.len() * leaf_size;
 
-        let elem_bytes = <F as PrimeField>::Repr::default().as_ref().len(); // 8
-        let chunks_per_leaf = path_depth + (leaf_size * elem_bytes) / MERKLE_ROOT_SIZE; // d + 4
+        let chunks_per_leaf = path_depth;
         let expected_chunks = leaf_indices.len() * chunks_per_leaf;
 
         // Helper closure: Read one QueryResult from the transcript.

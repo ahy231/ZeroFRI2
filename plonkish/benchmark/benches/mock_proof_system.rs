@@ -6,34 +6,18 @@ use ff::{BatchInvert, Field, PrimeField};
 use halo2_proofs::halo2curves::bn256::{Bn256, G1Affine};
 use halo2_proofs::halo2curves::secp256k1::Fp;
 use itertools::{izip, Itertools as _};
-use num_bigint::BigInt;
-use p3_bn254_fr::{Bn254Fr, FFBn254Fr};
-use p3_challenger::FieldChallenger;
 use p3_matrix::Matrix;
 use plonkish_backend::pcs::multilinear::virgo::VirgoPCS;
 // use plonkish_backend::pcs::multilinear::zeromorph_fri_v3::ZeromorphFriV3;
-use plonkish_backend::piop::sum_check::classic::{ClassicSumCheck, CoefficientsProver};
-use plonkish_backend::piop::sum_check::{eq_xy_eval, SumCheck, VirtualPolynomial};
-use plonkish_backend::poly::univariate::UnivariatePolynomial;
-use plonkish_backend::util::arithmetic::{inner_product, squares};
-use plonkish_backend::util::expression::{Expression, Query, Rotation};
+use plonkish_backend::piop::sum_check::SumCheck;
+use plonkish_backend::util::arithmetic::squares;
 use plonkish_backend::util::fake_extension::MyFr;
-use plonkish_backend::util::transcript::FieldTranscript;
 
-use p3_challenger::{HashChallenger, SerializingChallenger32};
-use p3_commit::ExtensionMmcs;
-use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
-use p3_fri::{FriConfig, TwoAdicFriPcs};
-use p3_keccak::Keccak256Hash;
-use p3_matrix::dense::RowMajorMatrix;
-use p3_merkle_tree::MerkleTreeMmcs;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher32};
-use p3_util::{log2_ceil_usize, log2_strict_usize};
 use plonkish_backend::pcs::mock_pcs::PcsOps;
 use plonkish_backend::pcs::multilinear::deepfold::Deepfold;
 use plonkish_backend::pcs::multilinear::{
-    interpolate_over_boolean_hypercube_with_copy, Basefold, Gemini, MultilinearBrakedown,
-    MultilinearHyrax, MultilinearKzg, Type2Polynomial, ZeromorphFri, ZeromorphFriV3,
+    Basefold, Gemini, MultilinearBrakedown,
+    MultilinearHyrax, MultilinearKzg, ZeromorphFri, ZeromorphFriV3,
 };
 use plonkish_backend::pcs::univariate::UnivariateKzg;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
@@ -57,14 +41,11 @@ use plonkish_backend::{
 
 use rand::thread_rng;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{from_str, to_string};
-use sha2::digest::Output;
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::ops::{AddAssign, Deref as _, Range};
-use std::ptr::addr_of;
+use std::ops::{AddAssign, Range};
 use std::{
     env::args,
     fmt::Display,
