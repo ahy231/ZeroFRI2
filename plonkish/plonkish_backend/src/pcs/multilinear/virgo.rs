@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Debug;
 use std::mem::size_of;
+use crate::util::arithmetic::PrimeField;
+
 
 use crate::util::{
     algebra::{
@@ -750,14 +752,19 @@ where
             &RandomOracle::new(param.total_round, SECURITY_BITS / CODE_RATE),
             param.step,
         );
-        // Read back the function proofs.
-        // We expect exactly two function proofs.
-        // Determine the expected number of chunks per query result.
-        let expected_chunks = param.interpolate_cosets[0].size() / (1 << param.step);
+
+        let leaf_size = 1 << param.step;
+
+        let tree_leaves = fri_verifier.u_root.leave_number;
+        let path_depth = tree_leaves.next_power_of_two().trailing_zeros() as usize;
+
         // Use the verifier's stored query list.
         let leaf_indices = fri_verifier.oracle.query_list.clone();
-        let leaf_size = 1 << param.step;
         let num_field_elems = leaf_indices.len() * leaf_size;
+
+        let elem_bytes = <F as PrimeField>::Repr::default().as_ref().len(); // 8
+        let chunks_per_leaf = path_depth + (leaf_size * elem_bytes) / MERKLE_ROOT_SIZE; // d + 4
+        let expected_chunks = leaf_indices.len() * chunks_per_leaf;
 
         // Helper closure: Read one QueryResult from the transcript.
         let mut read_query_result = || -> Result<QueryResult<F>, crate::Error> {
