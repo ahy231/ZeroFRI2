@@ -41,9 +41,19 @@ Our benchmarks cover:
 - **Proof Size**: The size of the generated proofs.
 - **Verification Time**: How fast a proof can be verified.
 
-For a full analysis, including detailed measurement methods and workflow diagrams, please see [docs/bench_results.md](docs/bench_results.md).
+### Visual comparison at a glance 📊
+| ![Proof-generation time](docs/img/proof_gen_time.png) | ![Proof size](docs/img/proof_size.png) | ![Verification time](docs/img/verification_time.png) |
+| :--: | :--: | :--: |
+| <sub>[open large](docs/img/proof_gen_time.png)</sub> | <sub>[open large](docs/img/proof_size.png)</sub> | <sub>[open large](docs/img/verification_time.png)</sub> |
 
----
+<details>
+<summary>Why log-scaled axes?</summary>
+
+All three plots use a logarithmic Y-axis so that huge differences (e.g. Gemini’s 75 × smaller proofs vs. Brakedown’s gigabit proofs) remain visible on a single graph.
+</details>
+
+For the full CSV tables, raw measurement scripts, and methodology, see **[docs/bench_results.md](docs/bench_results.md)**.
+
 
 # Testing Framework
 
