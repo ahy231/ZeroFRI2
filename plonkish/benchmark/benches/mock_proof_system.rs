@@ -8,7 +8,6 @@ use halo2_proofs::halo2curves::secp256k1::Fp;
 use itertools::{izip, Itertools as _};
 use p3_matrix::Matrix;
 use plonkish_backend::pcs::multilinear::virgo::VirgoPCS;
-use plonkish_backend::pcs::multilinear::zeromorph_fri_v3::ZeromorphFriV3;
 use plonkish_backend::piop::sum_check::SumCheck;
 use plonkish_backend::util::arithmetic::squares;
 use plonkish_backend::util::fake_extension::MyFr;
@@ -34,8 +33,8 @@ use plonkish_backend::util::transcript::{
 use plonkish_backend::{
     halo2_curves::bn256::Fr,
     pcs::{
-        multilinear::Zeromorph, multilinear::ZeromorphFriV2, multilinear::ZeromorphFriV4,
-        univariate::Fri,
+        multilinear::Zeromorph, multilinear::ZeromorphFriV2, multilinear::ZeromorphFriV3,
+        multilinear::ZeromorphFriV4, univariate::Fri,
     },
     poly::multilinear::MultilinearPolynomial,
     util::poly_loader::container::Field as CF,
