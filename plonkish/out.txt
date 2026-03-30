@@ -1,0 +1,328 @@
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+warning: /Users/ahy231/Documents/GitHub/zerofri/plonkish/Cargo.toml: unused manifest key: build
+    Blocking waiting for file lock on build directory
+   Compiling plonkish_backend v0.1.0 (/Users/ahy231/Documents/GitHub/zerofri/plonkish/plonkish_backend)
+warning: unused import: `itertools::izip`
+  --> plonkish_backend/src/pcs/mock_pcs.rs:17:5
+   |
+17 | use itertools::izip;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `serde_json::to_string`
+  --> plonkish_backend/src/pcs/mock_pcs.rs:20:5
+   |
+20 | use serde_json::to_string;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `OutputSizeUser`
+  --> plonkish_backend/src/pcs/mock_pcs.rs:21:28
+   |
+21 | use sha2::digest::{Output, OutputSizeUser};
+   |                            ^^^^^^^^^^^^^^
+
+warning: unused variable: `other`
+  --> plonkish_backend/src/pcs/mock_pcs.rs:54:18
+   |
+54 |     fn eq(&self, other: &Self) -> bool {
+   |                  ^^^^^ help: if this is intentional, prefix it with an underscore: `_other`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `rng`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:117:51
+    |
+117 |     fn setup(poly_size: usize, batch_size: usize, rng: impl RngCore) -> Result<Self::Param, Error> {
+    |                                                   ^^^ help: if this is intentional, prefix it with an underscore: `_rng`
+
+warning: unused variable: `param`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:134:9
+    |
+134 |         param: &Self::Param,
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_param`
+
+warning: unused variable: `poly_size`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:135:9
+    |
+135 |         poly_size: usize,
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_poly_size`
+
+warning: unused variable: `batch_size`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:136:9
+    |
+136 |         batch_size: usize,
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_batch_size`
+
+warning: unused variable: `pp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:148:15
+    |
+148 |     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
+    |               ^^ help: if this is intentional, prefix it with an underscore: `_pp`
+
+warning: unused variable: `pp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:168:9
+    |
+168 |         pp: &Self::ProverParam,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_pp`
+
+warning: unused variable: `pp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:203:9
+    |
+203 |         pp: &Self::ProverParam,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_pp`
+
+warning: unused variable: `comm`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:205:9
+    |
+205 |         comm: &Self::Commitment,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_comm`
+
+warning: unused variable: `transcript`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:208:9
+    |
+208 |         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_transcript`
+
+warning: unused variable: `comms`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:239:13
+    |
+239 |         let comms = comms.into_iter().collect_vec();
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_comms`
+
+warning: unused variable: `pp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:231:9
+    |
+231 |         pp: &Self::ProverParam,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_pp`
+
+warning: unused variable: `transcript`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:236:9
+    |
+236 |         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_transcript`
+
+warning: unused variable: `vp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:270:9
+    |
+270 |         vp: &Self::VerifierParam,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_vp`
+
+warning: unused variable: `comm`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:271:9
+    |
+271 |         comm: &Self::Commitment,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_comm`
+
+warning: unused variable: `point`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:272:9
+    |
+272 |         point: &Point<F, Self::Polynomial>,
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_point`
+
+warning: unused variable: `eval`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:273:9
+    |
+273 |         eval: &F,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_eval`
+
+warning: unused variable: `transcript`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:274:9
+    |
+274 |         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_transcript`
+
+warning: unused variable: `comms`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:286:13
+    |
+286 |         let comms = comms.into_iter().collect_vec();
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_comms`
+
+warning: unused variable: `vp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:280:9
+    |
+280 |         vp: &Self::VerifierParam,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_vp`
+
+warning: unused variable: `points`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:282:9
+    |
+282 |         points: &[Point<F, Self::Polynomial>],
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_points`
+
+warning: unused variable: `evals`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:283:9
+    |
+283 |         evals: &[Evaluation<F>],
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_evals`
+
+warning: unused variable: `transcript`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:284:9
+    |
+284 |         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_transcript`
+
+warning: unused variable: `vp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:316:9
+    |
+316 |         vp: &Self::VerifierParam,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_vp`
+
+warning: unused variable: `vp`
+   --> plonkish_backend/src/pcs/mock_pcs.rs:323:9
+    |
+323 |         vp: &Self::VerifierParam,
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_vp`
+
+warning: field `0` is never read
+  --> plonkish_backend/src/frontend/halo2/circuit.rs:54:32
+   |
+54 |     pub struct VanillaPlonk<F>(usize, Vec<[Assigned<F>; 8]>);
+   |                ------------    ^^^^^
+   |                |
+   |                field in this struct
+   |
+   = note: `VanillaPlonk` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+   |
+54 |     pub struct VanillaPlonk<F>((), Vec<[Assigned<F>; 8]>);
+   |                                ~~
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:124:13
+    |
+124 |             CONTAINER.as_mut().unwrap().new_round();
+    |             ^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+    = note: `#[warn(static_mut_refs)]` on by default
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:151:17
+    |
+151 |                 CONTAINER.as_mut().unwrap().push_matrix(vec![poly
+    |                 ^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:157:17
+    |
+157 |                 PCS_RECORDER.as_mut().unwrap().push((PcsOps::Commit, 1));
+    |                 ^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:174:17
+    |
+174 |                 CONTAINER.as_mut().unwrap().push_matrix(
+    |                 ^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:187:17
+    |
+187 | /                 PCS_RECORDER
+188 | |                     .as_mut()
+    | |_____________________________^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:212:17
+    |
+212 |                 CONTAINER.as_mut().unwrap().poly_points.push((
+    |                 ^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:224:17
+    |
+224 |                 PCS_RECORDER.as_mut().unwrap().push((PcsOps::Open, 1));
+    |                 ^^^^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:244:21
+    |
+244 |                     CONTAINER.as_mut().unwrap().poly_points.push((
+    |                     ^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+warning: creating a mutable reference to mutable static is discouraged
+   --> plonkish_backend/src/pcs/mock_pcs.rs:259:17
+    |
+259 | /                 PCS_RECORDER
+260 | |                     .as_mut()
+    | |_____________________________^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+
+   Compiling benchmark v0.1.0 (/Users/ahy231/Documents/GitHub/zerofri/plonkish/benchmark)
+warning: module `BasefoldParams` should have a snake case name
+ --> benchmark/src/lib.rs:1:9
+  |
+1 | pub mod BasefoldParams;
+  |         ^^^^^^^^^^^^^^ help: convert the identifier to snake case: `basefold_params`
+  |
+  = note: `#[warn(non_snake_case)]` on by default
+
+warning: `benchmark` (lib) generated 1 warning
+warning: `plonkish_backend` (lib) generated 38 warnings (run `cargo fix --lib -p plonkish_backend` to apply 3 suggestions)
+warning: unused import: `plonkish_backend::piop::sum_check::SumCheck`
+  --> benchmark/benches/mock_proof_system.rs:12:5
+   |
+12 | use plonkish_backend::piop::sum_check::SumCheck;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `p3_matrix::Matrix`
+ --> benchmark/benches/mock_proof_system.rs:9:5
+  |
+9 | use p3_matrix::Matrix;
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `k`
+   --> benchmark/benches/mock_proof_system.rs:918:16
+    |
+918 | fn sample_size(k: usize) -> usize {
+    |                ^ help: if this is intentional, prefix it with an underscore: `_k`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: function `quotients` is never used
+   --> benchmark/benches/mock_proof_system.rs:579:4
+    |
+579 | fn quotients<F: Field, T>(
+    |    ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `eval_and_quotient_scalars` is never used
+   --> benchmark/benches/mock_proof_system.rs:614:4
+    |
+614 | fn eval_and_quotient_scalars<F: Field>(x: F, u: &[F]) -> (F, Vec<F>) {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `benchmark` (bench "mock_proof_system") generated 5 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.98s
+     Running benches/mock_proof_system.rs (target/debug/deps/mock_proof_system-2b902f4f78e81ad7)

@@ -1,6 +1,6 @@
-// Improved version of zeromorph_fri.rs
-// 1. Fix the integrity of the original protocol.
-// 2. Forge a virtual polynomial named g, and only do FRI once on g.
+// Naive ZeroFRI protocol.
+// 1. Restore integrity of the original Zeromorph+FRI construction.
+// 2. Introduce a virtual polynomial g and run FRI only once on g.
 
 use crate::util::algebra::batch_bit_reverse;
 use crate::util::fake_extension::MyFr;
