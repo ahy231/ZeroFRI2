@@ -115,5 +115,8 @@ harness = false
 # [[bench]]
 # name = "pcs_bench"
 # harness = false
+[[bench]]
+name = "test"
+harness = false
 # [[bin]]
 # name = "plotter"

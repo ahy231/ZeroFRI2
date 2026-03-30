@@ -152,6 +152,14 @@ where
 
         let mut bases = Vec::with_capacity(lg_n);
         let mut base = primitive_root_of_unity::<F>(lg_n);
+        // println!(
+        //     "fri: base: {:?}, base^2: {:?}, primitive_root_of_unity: {:?}, log_n: {:?}",
+        //     base,
+        //     base * base,
+        //     primitive_root_of_unity::<F>(lg_n - 1),
+        //     lg_n
+        // );
+        // println!("fri: root of 5: {:?}", primitive_root_of_unity::<F>(5));
         bases.push(base);
         for _ in 1..lg_n {
             base = base * base; // base = g^2^_
@@ -1069,7 +1077,14 @@ fn verifier_query_phase<F: PrimeField, H: Hash>(
 fn primitive_root_of_unity<F: PrimeField>(n_log: usize) -> F {
     assert!(n_log <= (F::S as usize));
     let base = F::ROOT_OF_UNITY;
-    exp_power_of_2(base, (F::S as usize) - n_log)
+    let res = exp_power_of_2(base, (F::S as usize) - n_log);
+    // println!(
+    //     "fri: base: {:?}, power_log: {:?}, res: {:?}",
+    //     base,
+    //     (F::S as usize) - n_log,
+    //     res
+    // );
+    res
 }
 fn exp_power_of_2<F: PrimeField>(el: F, power_log: usize) -> F {
     let mut res = el;

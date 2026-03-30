@@ -202,7 +202,11 @@ where
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
         let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
-        additive::batch_open::<_, Self>(pp, num_vars, polys, comms, points, evals, transcript)
+        // additive::batch_open::<_, Self>(pp, num_vars, polys, comms, points, evals, transcript)
+        for (poly, comm, point, eval) in izip!(polys, comms, points, evals) {
+            Self::open(pp, poly, comm, point, &eval.value, transcript)?;
+        }
+        Ok(())
     }
 
     fn read_commitments(
@@ -256,7 +260,11 @@ where
     ) -> Result<(), Error> {
         let num_vars = points.first().map(|point| point.len()).unwrap_or_default();
         let comms = comms.into_iter().collect_vec();
-        additive::batch_verify::<_, Self>(vp, num_vars, comms, points, evals, transcript)
+        // additive::batch_verify::<_, Self>(vp, num_vars, comms, points, evals, transcript)
+        for (comm, point, eval) in izip!(comms, points, evals) {
+            Self::verify(vp, comm, point, &eval.value, transcript)?;
+        }
+        Ok(())
     }
 }
 

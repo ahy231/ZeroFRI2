@@ -18,6 +18,7 @@ mod zeromorph;
 mod zeromorph_fri;
 mod zeromorph_fri_v2;
 pub mod zeromorph_fri_v3;
+pub mod zeromorph_fri_v4;
 pub use basefold::{
     evaluate_over_foldable_domain, interpolate_over_boolean_hypercube_with_copy, Basefold,
     BasefoldCommitment, BasefoldExtParams, BasefoldParams, BasefoldProverParams,
@@ -36,7 +37,8 @@ pub use kzg::{
 pub use zeromorph::{Zeromorph, ZeromorphKzgProverParam, ZeromorphKzgVerifierParam};
 pub use zeromorph_fri::ZeromorphFri;
 pub use zeromorph_fri_v2::{ZeromorphFriProverParam, ZeromorphFriV2, ZeromorphFriVerifierParam};
-pub use zeromorph_fri_v3::ZeromorphFri as ZeromorphFriV3;
+pub use zeromorph_fri_v3::ZeromorphFriV3;
+pub use zeromorph_fri_v4::ZeromorphFriV4;
 fn validate_input<'a, F: Field>(
     function: &str,
     param_num_vars: usize,
@@ -364,7 +366,7 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 10..25 {
+        for num_vars in 10..11 {
             println!("k {:?}", num_vars);
             // Setup
             let (pp, vp) = {

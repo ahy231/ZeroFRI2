@@ -210,7 +210,10 @@ where
                 .map(|p| {
                     let mut coeffs = p.coeffs().to_vec();
                     reverse_index_bits_in_place(&mut coeffs);
+                    let timer0 = Instant::now();
                     let mut evals = evaluate_over_foldable_domain(log_rate, coeffs, &table_copy);
+                    let timer0_elapsed = timer0.elapsed();
+                    println!("time0: {:?}", timer0_elapsed);
                     reverse_index_bits_in_place(&mut evals);
 
                     unsafe {
@@ -411,7 +414,6 @@ where
 
                 indices.push(q_copy);
                 q_copy >>= 1;
-                query_range >>= 1;
             }
 
             query_paths.push((cur_path, indices, reduced_openings));

@@ -1,5 +1,6 @@
-// Brand new version of Zeromorph + FRI
-// Optimize the original protocol with Rolling Batch and MMCS.
+// Improved ZeroFRI protocol.
+// Prover `open` is O(N log N); ZeroFRI2 (v4) reduces it to O(N).
+// Uses rolling batch and MMCS.
 
 use crate::pcs::univariate::batched_fri::BatchedFri;
 use crate::pcs::univariate::fri_p3::FriP3;
@@ -45,9 +46,9 @@ use rand::RngCore;
 use std::{borrow::Cow, marker::PhantomData, mem::size_of, slice};
 type SumCheck<F> = ClassicSumCheck<CoefficientsProver<F>>;
 #[derive(Clone, Debug)]
-pub struct ZeromorphFri<Pcs>(PhantomData<Pcs>);
+pub struct ZeromorphFriV3<Pcs>(PhantomData<Pcs>);
 
-impl<H> PolynomialCommitmentScheme<MyFr> for ZeromorphFri<Fri<MyFr, H>>
+impl<H> PolynomialCommitmentScheme<MyFr> for ZeromorphFriV3<Fri<MyFr, H>>
 where
     H: Hash,
 {

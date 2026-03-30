@@ -8,7 +8,6 @@ use halo2_proofs::halo2curves::secp256k1::Fp;
 use itertools::{izip, Itertools as _};
 use p3_matrix::Matrix;
 use plonkish_backend::pcs::multilinear::virgo::VirgoPCS;
-// use plonkish_backend::pcs::multilinear::zeromorph_fri_v3::ZeromorphFriV3;
 use plonkish_backend::piop::sum_check::SumCheck;
 use plonkish_backend::util::arithmetic::squares;
 use plonkish_backend::util::fake_extension::MyFr;
@@ -16,8 +15,7 @@ use plonkish_backend::util::fake_extension::MyFr;
 use plonkish_backend::pcs::mock_pcs::PcsOps;
 use plonkish_backend::pcs::multilinear::deepfold::Deepfold;
 use plonkish_backend::pcs::multilinear::{
-    Basefold, Gemini, MultilinearBrakedown,
-    MultilinearHyrax, MultilinearKzg, ZeromorphFri, ZeromorphFriV3,
+    Basefold, Gemini, MultilinearBrakedown, MultilinearHyrax, MultilinearKzg, ZeromorphFri,
 };
 use plonkish_backend::pcs::univariate::UnivariateKzg;
 use plonkish_backend::pcs::{Evaluation, PolynomialCommitmentScheme};
@@ -34,7 +32,10 @@ use plonkish_backend::util::transcript::{
 };
 use plonkish_backend::{
     halo2_curves::bn256::Fr,
-    pcs::{multilinear::ZeromorphFriV2, univariate::Fri},
+    pcs::{
+        multilinear::Zeromorph, multilinear::ZeromorphFriV2, multilinear::ZeromorphFriV3,
+        multilinear::ZeromorphFriV4, univariate::Fri,
+    },
     poly::multilinear::MultilinearPolynomial,
     util::poly_loader::container::Field as CF,
 };
@@ -87,6 +88,7 @@ fn main() {
 pub trait FieldFromStr: DeserializeOwned + Clone + AddAssign + Copy + Debug {
     fn from_str(s: &str) -> Self;
     fn to_enum() -> CF;
+    fn to_string() -> String;
 }
 
 impl FieldFromStr for Fr {
@@ -96,6 +98,10 @@ impl FieldFromStr for Fr {
 
     fn to_enum() -> CF {
         CF::Fr
+    }
+
+    fn to_string() -> String {
+        "fr".to_string()
     }
 }
 
@@ -107,6 +113,10 @@ impl FieldFromStr for Mersenne127 {
     fn to_enum() -> CF {
         CF::Mersenne127
     }
+
+    fn to_string() -> String {
+        "mersenne127".to_string()
+    }
 }
 
 impl FieldFromStr for GoldilocksMont {
@@ -116,6 +126,10 @@ impl FieldFromStr for GoldilocksMont {
 
     fn to_enum() -> CF {
         CF::GoldilocksMont
+    }
+
+    fn to_string() -> String {
+        "goldilocksmont".to_string()
     }
 }
 
@@ -127,6 +141,10 @@ impl FieldFromStr for Fp {
     fn to_enum() -> CF {
         CF::Fp
     }
+
+    fn to_string() -> String {
+        "fp".to_string()
+    }
 }
 
 impl FieldFromStr for MyFr {
@@ -137,6 +155,10 @@ impl FieldFromStr for MyFr {
     fn to_enum() -> CF {
         CF::MyFr
     }
+
+    fn to_string() -> String {
+        "myfr".to_string()
+    }
 }
 
 impl FieldFromStr for Mersenne61Mont {
@@ -146,6 +168,10 @@ impl FieldFromStr for Mersenne61Mont {
 
     fn to_enum() -> CF {
         CF::Mersenne61Mont
+    }
+
+    fn to_string() -> String {
+        "mersenne61mont".to_string()
     }
 }
 
@@ -163,14 +189,14 @@ fn bench_pcs<
 {
     let loader = Loader::new(F::to_enum());
     let commit_data =
-        loader.load(format!("bench_data/mock/mock_data-{:?}-{}.json", F::to_enum(), k).as_str());
+        loader.load(format!("bench_data/mock/mock_data-{}-{}.json", F::to_string(), k).as_str());
     let mut commit_pointer = 0;
     let mut open_pointer = 0;
     let instructions: Vec<(PcsOps, usize)> = serde_json::from_reader(
         File::open(
             format!(
-                "bench_data/mock/mock_pcs_recorder-{:?}-{}.json",
-                F::to_enum(),
+                "bench_data/mock/mock_pcs_recorder-{}-{}.json",
+                F::to_string(),
                 k
             )
             .as_str(),
@@ -615,9 +641,11 @@ enum System {
     BasefoldBlake2s,
     Brakedown,
     BrakedownBlake2s,
+    Zeromorph,
     ZeromorphFri,
     ZeromorphFriV2,
     ZeromorphFriV3,
+    ZeromorphFriV4,
     Gemini,
     Hyrax,
     Deepfold,
@@ -633,9 +661,11 @@ impl System {
             System::BasefoldBlake2s,
             System::Brakedown,
             System::BrakedownBlake2s,
+            System::Zeromorph,
             System::ZeromorphFri,
             System::ZeromorphFriV2,
-            // System::ZeromorphFriV3,
+            System::ZeromorphFriV3,
+            System::ZeromorphFriV4,
             System::Gemini,
             System::Hyrax,
             System::Deepfold,
@@ -768,18 +798,22 @@ impl System {
             System::Deepfold => {
                 bench_pcs::<Mersenne61Mont, Deepfold, Blake2sTranscript<_>>(self, k)
             }
+            System::Zeromorph => {
+                bench_pcs::<Fr, Zeromorph<UnivariateKzg<Bn256>>, Blake2sTranscript<_>>(self, k)
+            }
             System::ZeromorphFri => {
                 bench_pcs::<Fr, ZeromorphFri<Fri<_, Blake2s>>, Keccak256Transcript<_>>(self, k)
             }
             System::ZeromorphFriV2 => {
-                bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Keccak256Transcript<_>>(self, k)
+                bench_pcs::<MyFr, ZeromorphFriV2<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
             System::ZeromorphFriV3 => {
-                bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Keccak256Transcript<_>>(self, k)
+                bench_pcs::<MyFr, ZeromorphFriV3<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
-            System::Virgo => {
-                bench_pcs::<Mersenne61Mont, VirgoPCS, Blake2sTranscript<_>>(self, k)
+            System::ZeromorphFriV4 => {
+                bench_pcs::<MyFr, ZeromorphFriV4<Fri<_, Blake2s>>, Blake2sTranscript<_>>(self, k)
             }
+            System::Virgo => bench_pcs::<Mersenne61Mont, VirgoPCS, Blake2sTranscript<_>>(self, k),
         }
     }
 }
@@ -787,6 +821,7 @@ impl System {
 impl Display for System {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            System::Zeromorph => write!(f, "zeromorph"),
             System::ZeromorphFri => write!(f, "zeromorph_fri"),
             System::Basefold256 => write!(f, "basefold256"),
             System::MultilinearKzg => write!(f, "multilinear_kzg"),
@@ -800,6 +835,7 @@ impl Display for System {
             System::Deepfold => write!(f, "deepfold"),
             System::Virgo => write!(f, "virgo"),
             System::ZeromorphFriV3 => write!(f, "zeromorph_fri_v3"),
+            System::ZeromorphFriV4 => write!(f, "zeromorph_fri_v4"),
         }
     }
 }
@@ -811,6 +847,7 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
             match key.as_str() {
                 "--system" => match value.as_str() {
                     "all" => systems = System::all(),
+                    "zeromorph" => systems.push(System::Zeromorph),
                     "zeromorph_fri" => systems.push(System::ZeromorphFri),
                     "basefold256" => systems.push(System::Basefold256),
                     "multilinear_kzg" => systems.push(System::MultilinearKzg),
@@ -822,10 +859,11 @@ fn parse_args() -> (Vec<System>, Range<usize>) {
                     "hyrax" => systems.push(System::Hyrax),
                     "zeromorph_fri_v2" => systems.push(System::ZeromorphFriV2),
                     "zeromorph_fri_v3" => systems.push(System::ZeromorphFriV3),
+                    "zeromorph_fri_v4" => systems.push(System::ZeromorphFriV4),
                     "virgo" => systems.push(System::Virgo),
                     "deepfold" => systems.push(System::Deepfold),
                     _ => panic!(
-                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne,basefoldblake2s,brakedown,brakedownblake2s,gemini,hyrax,zeromorph_fri_v2,virgo,deepfold}}"
+                        "system should be one of {{all,zeromorph_fri,basefold256,multilinear_kzg,basefold61mersenne,basefoldblake2s,brakedown,brakedownblake2s,gemini,hyrax,zeromorph_fri_v2,zeromorph_fri_v3,zeromorph_fri_v4,virgo,deepfold}}"
                     ),
                 },
                 "--k" => {
